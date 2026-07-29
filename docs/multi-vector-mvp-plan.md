@@ -14,7 +14,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 
 - [x] Create `multi-vector` branch from `main`.
 - [x] Add this implementation tracker.
-- [ ] Open a draft PR for CI visibility.
+- [x] Open a draft PR for CI visibility.
 - [ ] Confirm baseline backend checks pass.
 - [ ] Confirm baseline frontend checks pass.
 - [ ] Confirm the experimental Docker stack runs independently on the target laptop.
