@@ -17,7 +17,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add this implementation tracker.
 - [x] Open a draft PR for implementation visibility.
 - [x] Confirm CI workflows are intentionally out of scope for this MVP.
-- [ ] Confirm the experimental Docker stack runs independently on the target laptop.
+- [x] Confirm the experimental Docker stack runs independently on the target laptop.
 - [ ] Confirm one architectural PDF can be uploaded, extracted, and queried using existing retrieval.
 
 ## Phase 1: Qdrant infrastructure
