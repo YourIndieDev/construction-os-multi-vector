@@ -10,11 +10,15 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from construction_os.drawing import repository as drawing_repo
-from construction_os.drawing.config import get_drawing_retrieval_mode, load_drawing_extraction_config
+from construction_os.drawing.config import (
+    get_drawing_retrieval_mode,
+    load_drawing_extraction_config,
+)
 from construction_os.drawing.pdf_inspect import resolve_source_pdf_path
 from construction_os.drawing.pipeline import queue_drawing_extraction_jobs
 from construction_os.drawing.retrieval import retrieve_drawing_evidence
 from construction_os.domain.project import Source
+from construction_os.integrations.qdrant import check_qdrant_health
 
 router = APIRouter(prefix="/drawing-extractions", tags=["drawing-extractions"])
 
@@ -156,6 +160,12 @@ async def search_drawings(body: DrawingSearchRequest) -> Dict[str, Any]:
         "mode": get_drawing_retrieval_mode(),
         "results": [i.to_search_result() for i in items],
     }
+
+
+@router.get("/multivector/health")
+async def multivector_health() -> Dict[str, Any]:
+    """Report optional Qdrant readiness without affecting the existing app."""
+    return {"qdrant": await check_qdrant_health()}
 
 
 @router.get("/config")
