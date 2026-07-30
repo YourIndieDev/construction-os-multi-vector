@@ -29,7 +29,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add Qdrant health API.
 - [x] Add tests for configuration and graceful unavailability.
 - [x] Run targeted backend tests and configuration validation: 5 tests passed.
-- [ ] Confirm the Docker stack works end to end on the target laptop.
+- [x] Confirm the Docker stack and Qdrant health work end to end on the target laptop.
 
 ## Phase 2: ColSmol embedding service
 
