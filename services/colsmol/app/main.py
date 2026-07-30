@@ -95,7 +95,11 @@ class ColSmolRuntime:
         self.model.to(self.device)
         self.processor = ColIdefics3Processor.from_pretrained(self.model_name)
 
-        probe = self.embed_query("architectural drawing")
+        with self._lock, self.torch.inference_mode():
+            batch = self.processor.process_queries(["architectural drawing"]).to(
+                self.device
+            )
+            probe = self._serialize(self.model(**batch))
         self.embedding_dimension = int(probe["dimension"])
         self.ready = True
 
@@ -146,9 +150,7 @@ class ColSmolRuntime:
         }
 
     def embed_query(self, text: str) -> dict[str, Any]:
-        self._ensure_ready() if self.model is not None else None
-        if self.model is None or self.processor is None or self.torch is None:
-            raise RuntimeError("ColSmol model is not ready")
+        self._ensure_ready()
         with self._lock, self.torch.inference_mode():
             batch = self.processor.process_queries([text]).to(self.device)
             embeddings = self.model(**batch)
