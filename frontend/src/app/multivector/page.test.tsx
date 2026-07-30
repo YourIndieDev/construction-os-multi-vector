@@ -17,6 +17,42 @@ describe("MultiVectorPage", () => {
     expect(screen.getByRole("button", { name: "Enable" })).toBeDisabled();
   });
 
+  it("loads project sources and selects one", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        project_id: "project:test",
+        sources: [
+          {
+            project_id: "project:test",
+            source_id: "source:test",
+            source_title: "Architectural Plans",
+            enabled: false,
+            status: "disabled",
+            persisted_status: "disabled",
+            stale: false,
+            point_count: 0,
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MultiVectorPage />);
+    fireEvent.change(screen.getByLabelText("Project ID"), {
+      target: { value: "project:test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load project sources" }));
+
+    const sourceButton = await screen.findByRole("button", { name: /Architectural Plans/i });
+    fireEvent.click(sourceButton);
+
+    expect(screen.getByLabelText("Source ID")).toHaveValue("source:test");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/drawing-extractions/multivector/projects/project%3Atest/sources",
+    );
+  });
+
   it("loads and displays live source status", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
