@@ -1,4 +1,4 @@
-"""Minimal optional Qdrant connectivity for the multi-vector MVP."""
+"""Optional Qdrant connectivity and configuration for the multi-vector MVP."""
 
 from __future__ import annotations
 
@@ -9,11 +9,23 @@ from typing import Any, Optional
 import httpx
 
 
+DEFAULT_MULTIVECTOR_COLLECTION = "construction_os_drawing_multivector_v1"
+DEFAULT_MULTIVECTOR_VECTOR_SIZE = 128
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = (os.getenv(name) or str(default)).strip()
+    try:
+        return max(int(raw), minimum)
+    except ValueError:
+        return default
 
 
 @dataclass(frozen=True)
@@ -22,6 +34,8 @@ class QdrantSettings:
     url: str
     timeout_seconds: float
     api_key: Optional[str]
+    collection_name: str = DEFAULT_MULTIVECTOR_COLLECTION
+    vector_size: int = DEFAULT_MULTIVECTOR_VECTOR_SIZE
 
 
 def load_qdrant_settings() -> QdrantSettings:
@@ -37,7 +51,20 @@ def load_qdrant_settings() -> QdrantSettings:
         url=(os.getenv("QDRANT_URL") or "http://qdrant:6333").rstrip("/"),
         timeout_seconds=timeout_seconds,
         api_key=(os.getenv("QDRANT_API_KEY") or "").strip() or None,
+        collection_name=(
+            os.getenv("QDRANT_MULTIVECTOR_COLLECTION")
+            or DEFAULT_MULTIVECTOR_COLLECTION
+        ).strip(),
+        vector_size=_env_int(
+            "QDRANT_MULTIVECTOR_VECTOR_SIZE",
+            DEFAULT_MULTIVECTOR_VECTOR_SIZE,
+        ),
     )
+
+
+def qdrant_headers(settings: QdrantSettings) -> Optional[dict[str, str]]:
+    """Return authentication headers only when an API key is configured."""
+    return {"api-key": settings.api_key} if settings.api_key else None
 
 
 async def check_qdrant_health(
@@ -54,7 +81,7 @@ async def check_qdrant_health(
             "url": cfg.url,
         }
 
-    headers = {"api-key": cfg.api_key} if cfg.api_key else None
+    headers = qdrant_headers(cfg)
     owns_client = client is None
     active_client = client or httpx.AsyncClient(timeout=cfg.timeout_seconds)
 
