@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 type SourceStatus = {
   project_id: string;
@@ -34,6 +34,10 @@ function sourceEndpoint(projectId: string, sourceId: string, action?: string) {
   return action ? `${base}/${action}` : base;
 }
 
+function projectSourcesEndpoint(projectId: string) {
+  return `${API_ROOT}/projects/${encodeURIComponent(projectId)}/sources`;
+}
+
 function readableStatus(status: string) {
   return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -52,12 +56,14 @@ async function responseError(response: Response) {
 export default function MultiVectorPage() {
   const [projectId, setProjectId] = useState("");
   const [sourceId, setSourceId] = useState("");
+  const [projectSources, setProjectSources] = useState<SourceStatus[]>([]);
   const [status, setStatus] = useState<SourceStatus | null>(null);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const hasIds = projectId.trim().length > 0 && sourceId.trim().length > 0;
+  const hasProject = projectId.trim().length > 0;
+  const hasIds = hasProject && sourceId.trim().length > 0;
 
   async function runRequest(method: "GET" | "POST", action?: string) {
     if (!hasIds) {
@@ -76,9 +82,35 @@ export default function MultiVectorPage() {
       }
       const body = (await response.json()) as SourceStatus;
       setStatus(body);
+      setProjectSources((current) =>
+        current.map((source) => (source.source_id === body.source_id ? body : source)),
+      );
       setMessage(action ? `${readableStatus(action)} completed.` : "Status refreshed.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadProjectSources() {
+    if (!hasProject) {
+      setMessage("Enter a project ID.");
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(projectSourcesEndpoint(projectId.trim()));
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      const body = (await response.json()) as { sources?: SourceStatus[] };
+      const sources = body.sources ?? [];
+      setProjectSources(sources);
+      setMessage(`Loaded ${sources.length} project source${sources.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load project sources.");
     } finally {
       setBusy(false);
     }
@@ -104,6 +136,12 @@ export default function MultiVectorPage() {
   async function submitStatus(event: FormEvent) {
     event.preventDefault();
     await runRequest("GET");
+  }
+
+  function selectSource(source: SourceStatus) {
+    setSourceId(source.source_id);
+    setStatus(source);
+    setMessage(`Selected ${source.source_title || source.source_id}.`);
   }
 
   return (
@@ -143,6 +181,14 @@ export default function MultiVectorPage() {
               />
             </label>
             <div className="flex flex-wrap gap-2 md:col-span-2">
+              <button
+                className="rounded-md border px-4 py-2 text-sm font-medium disabled:opacity-50"
+                disabled={busy || !hasProject}
+                onClick={loadProjectSources}
+                type="button"
+              >
+                Load project sources
+              </button>
               <button
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
                 disabled={busy || !hasIds}
@@ -190,6 +236,35 @@ export default function MultiVectorPage() {
             </p>
           ) : null}
         </section>
+
+        {projectSources.length > 0 ? (
+          <section className="rounded-xl border bg-card p-5 shadow-sm" aria-label="Project sources">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Project sources</h2>
+              <span className="text-sm text-muted-foreground">{projectSources.length}</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {projectSources.map((source) => (
+                <button
+                  className="rounded-lg border p-3 text-left transition hover:bg-muted/60"
+                  key={source.source_id}
+                  onClick={() => selectSource(source)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-medium">{source.source_title || "Untitled source"}</span>
+                    <span className="rounded-full border px-2 py-0.5 text-xs">
+                      {readableStatus(source.status)}
+                    </span>
+                  </div>
+                  <div className="mt-2 truncate font-mono text-xs text-muted-foreground">
+                    {source.source_id}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {health ? (
           <section className="grid gap-4 sm:grid-cols-2" aria-label="Service health">
