@@ -59,9 +59,10 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add enable, disable, status, project-list, and rebuild APIs.
 - [x] Add current-file hash comparison and stale-file detection.
 - [x] Add isolated `/multivector` UI status and manual controls.
-- [x] Add backend state tests and frontend control-page tests.
-- [ ] Run targeted Phase 4 backend and frontend tests on the target laptop.
-- [ ] Verify enable, disable, status, and queued rebuild with a real project source.
+- [x] Add a visible project-header `Visual index` dialog with multi-select enable, disable, and rebuild controls.
+- [x] Add backend state tests and frontend control tests.
+- [ ] Run the updated project visual-index frontend test on the target laptop.
+- [ ] Verify multi-select enable, disable, status, and queued rebuild with real project sources.
 
 ## Phase 5: Indexing job
 
