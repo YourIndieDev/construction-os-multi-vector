@@ -19,6 +19,26 @@ services:
       - multivector_qdrant_data:/qdrant/storage
     restart: unless-stopped
 
+  colsmol:
+    build:
+      context: ./services/colsmol
+    image: construction-os-colsmol:local
+    ports:
+      - "127.0.0.1:${MULTIVECTOR_COLSMOL_PORT:-8091}:8000"
+    environment:
+      - COLSMOL_MODEL=${COLSMOL_MODEL:-vidore/colSmol-256M}
+      - COLSMOL_DTYPE=${COLSMOL_DTYPE:-float16}
+      - COLSMOL_REQUIRE_CUDA=${COLSMOL_REQUIRE_CUDA:-true}
+      - COLSMOL_MAX_IMAGE_EDGE=${COLSMOL_MAX_IMAGE_EDGE:-1536}
+      - COLSMOL_MAX_UPLOAD_BYTES=${COLSMOL_MAX_UPLOAD_BYTES:-26214400}
+      - HF_HOME=/models/huggingface
+      - TRANSFORMERS_CACHE=/models/huggingface
+    volumes:
+      - multivector_huggingface_cache:/models/huggingface
+    gpus: all
+    shm_size: "2gb"
+    restart: unless-stopped
+
   construction_os:
     build:
       context: .
@@ -37,6 +57,8 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_TIMEOUT_SECONDS=${QDRANT_TIMEOUT_SECONDS:-5}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - COLSMOL_URL=http://colsmol:8000
+      - COLSMOL_TIMEOUT_SECONDS=${COLSMOL_TIMEOUT_SECONDS:-10}
     volumes:
       - multivector_construction_os_data:/app/data
     depends_on:
@@ -48,3 +70,4 @@ volumes:
   multivector_surreal_data:
   multivector_qdrant_data:
   multivector_construction_os_data:
+  multivector_huggingface_cache:
