@@ -9,14 +9,14 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - Run Qdrant and the embedding model as optional services.
 - Multi-vector failures must never block normal source ingestion or chat.
 - Do not merge this experiment into the original Construction OS repository until evaluation is complete.
+- Use targeted local tests for this MVP; GitHub Actions CI is not required.
 
 ## Phase 0: Baseline and isolation
 
 - [x] Create `multi-vector` branch from `main`.
 - [x] Add this implementation tracker.
-- [x] Open a draft PR for CI visibility.
-- [ ] Confirm baseline backend checks pass.
-- [ ] Confirm baseline frontend checks pass.
+- [x] Open a draft PR for implementation visibility.
+- [x] Confirm CI workflows are intentionally out of scope for this MVP.
 - [ ] Confirm the experimental Docker stack runs independently on the target laptop.
 - [ ] Confirm one architectural PDF can be uploaded, extracted, and queried using existing retrieval.
 
@@ -28,7 +28,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [ ] Add Python Qdrant client and connection helper.
 - [ ] Add Qdrant health API.
 - [ ] Add tests for configuration and graceful unavailability.
-- [ ] Confirm all backend and frontend checks pass.
+- [ ] Run targeted backend tests and configuration validation.
 - [ ] Confirm the Docker stack works end to end.
 
 ## Phase 2: ColSmol embedding service
