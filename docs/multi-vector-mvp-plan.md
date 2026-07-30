@@ -18,7 +18,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Open a draft PR for implementation visibility.
 - [x] Confirm CI workflows are intentionally out of scope for this MVP.
 - [x] Confirm the experimental Docker stack runs independently on the target laptop.
-- [ ] Confirm one architectural PDF can be uploaded, extracted, and queried using existing retrieval.
+- [x] Confirm one architectural PDF can be uploaded, extracted, and queried using existing retrieval.
 
 ## Phase 1: Qdrant infrastructure
 
@@ -33,12 +33,13 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 
 ## Phase 2: ColSmol embedding service
 
-- [ ] Add isolated GPU model service.
-- [ ] Add image and query embedding endpoints.
-- [ ] Add model cache volume and health reporting.
-- [ ] Verify multi-vector output shape.
+- [x] Add isolated GPU model service.
+- [x] Add image and query embedding endpoints.
+- [x] Add model cache volume and health reporting.
+- [x] Add service and app integration contract tests.
+- [ ] Run targeted app and service contract tests.
+- [ ] Verify multi-vector query and image output shape.
 - [ ] Verify RTX 5050 8 GB execution.
-- [ ] Add service contract tests.
 
 ## Phase 3: Qdrant collection and storage
 
