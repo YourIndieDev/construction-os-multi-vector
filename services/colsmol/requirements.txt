@@ -1,0 +1,10 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+python-multipart==0.0.20
+pillow==11.3.0
+httpx==0.28.1
+pytest==8.4.1
+colpali-engine==0.3.17
+transformers>=4.46.3,<5
+accelerate>=1.2,<2
+safetensors>=0.5,<1
