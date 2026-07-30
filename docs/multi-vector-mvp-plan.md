@@ -50,16 +50,18 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add source-scoped delete, exact count, upsert, and rebuild behavior.
 - [x] Add storage tests: 7 tests pass in isolated mocked validation.
 - [x] Add an idempotent collection initialization API.
-- [ ] Run targeted storage tests in the application environment.
-- [ ] Initialize and validate the real Qdrant collection on the target laptop.
+- [x] Run targeted storage tests in the application environment.
+- [x] Initialize and validate the real Qdrant collection on the target laptop.
 
 ## Phase 4: Source opt-in and status
 
-- [ ] Add persisted source-level indexing state.
-- [ ] Add enable, disable, status, and rebuild APIs.
-- [ ] Add stale-file detection.
-- [ ] Add UI status and manual indexing controls.
-- [ ] Add tests.
+- [x] Add persisted project/source indexing state without modifying core source ingestion.
+- [x] Add enable, disable, status, project-list, and rebuild APIs.
+- [x] Add current-file hash comparison and stale-file detection.
+- [x] Add isolated `/multivector` UI status and manual controls.
+- [x] Add backend state tests and frontend control-page tests.
+- [ ] Run targeted Phase 4 backend and frontend tests on the target laptop.
+- [ ] Verify enable, disable, status, and queued rebuild with a real project source.
 
 ## Phase 5: Indexing job
 
