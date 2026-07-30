@@ -22,14 +22,14 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 
 ## Phase 1: Qdrant infrastructure
 
-- [ ] Add optional Qdrant Docker service and persistent volume.
-- [ ] Add local-only port binding and health check.
-- [ ] Add Qdrant environment configuration.
-- [ ] Add Python Qdrant client and connection helper.
-- [ ] Add Qdrant health API.
-- [ ] Add tests for configuration and graceful unavailability.
-- [ ] Run targeted backend tests and configuration validation.
-- [ ] Confirm the Docker stack works end to end.
+- [x] Add optional Qdrant Docker service and persistent volume.
+- [x] Add local-only port binding and readiness health endpoint.
+- [x] Add Qdrant environment configuration.
+- [x] Add lightweight Qdrant connection helper using the existing HTTP client.
+- [x] Add Qdrant health API.
+- [x] Add tests for configuration and graceful unavailability.
+- [x] Run targeted backend tests and configuration validation: 5 tests passed.
+- [ ] Confirm the Docker stack works end to end on the target laptop.
 
 ## Phase 2: ColSmol embedding service
 
