@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -13,6 +14,11 @@ from construction_os.drawing import repository as drawing_repo
 from construction_os.drawing.config import (
     get_drawing_retrieval_mode,
     load_drawing_extraction_config,
+)
+from construction_os.drawing.multivector_store import (
+    MultiVectorCollectionMismatch,
+    MultiVectorStoreError,
+    QdrantMultiVectorStore,
 )
 from construction_os.drawing.pdf_inspect import resolve_source_pdf_path
 from construction_os.drawing.pipeline import queue_drawing_extraction_jobs
@@ -170,6 +176,18 @@ async def multivector_health() -> Dict[str, Any]:
         "qdrant": await check_qdrant_health(),
         "colsmol": await check_colsmol_health(),
     }
+
+
+@router.post("/multivector/collection/ensure")
+async def ensure_multivector_collection() -> Dict[str, Any]:
+    """Idempotently create or validate the experimental Qdrant collection."""
+    try:
+        result = await QdrantMultiVectorStore().ensure_collection()
+        return {"status": "ready", **result}
+    except MultiVectorCollectionMismatch as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/config")
