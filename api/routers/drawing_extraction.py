@@ -15,6 +15,13 @@ from construction_os.drawing.config import (
     get_drawing_retrieval_mode,
     load_drawing_extraction_config,
 )
+from construction_os.drawing.multivector_state import (
+    MultiVectorStateError,
+    get_source_index_status,
+    list_project_source_statuses,
+    request_source_rebuild,
+    set_source_index_enabled,
+)
 from construction_os.drawing.multivector_store import (
     MultiVectorCollectionMismatch,
     MultiVectorStoreError,
@@ -51,6 +58,18 @@ def _is_pdf_source(source: Source) -> tuple[bool, Optional[str]]:
         return True, None
     except (ValueError, FileNotFoundError) as exc:
         return False, str(exc)
+
+
+def _state_http_error(exc: MultiVectorStateError) -> HTTPException:
+    detail = str(exc)
+    lowered = detail.lower()
+    if "not found" in lowered or "not linked" in lowered:
+        status_code = 404
+    elif "unable to reset qdrant" in lowered:
+        status_code = 503
+    else:
+        status_code = 400
+    return HTTPException(status_code=status_code, detail=detail)
 
 
 @router.post("/extract")
@@ -188,6 +207,72 @@ async def ensure_multivector_collection() -> Dict[str, Any]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/multivector/projects/{project_id}/sources")
+async def list_multivector_project_sources(project_id: str) -> Dict[str, Any]:
+    """List persisted opt-in and readiness state for all project sources."""
+    try:
+        sources = await list_project_source_statuses(project_id)
+        return {"project_id": project_id, "sources": sources}
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.get("/multivector/projects/{project_id}/sources/{source_id}")
+async def get_multivector_source_status(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Return live source readiness, stale-file state, and Qdrant point count."""
+    try:
+        return await get_source_index_status(project_id, source_id)
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/enable")
+async def enable_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Persist opt-in without changing the normal source ingestion pipeline."""
+    try:
+        return await set_source_index_enabled(
+            project_id,
+            source_id,
+            enabled=True,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/disable")
+async def disable_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Disable retrieval while retaining existing Qdrant points for fast re-enable."""
+    try:
+        return await set_source_index_enabled(
+            project_id,
+            source_id,
+            enabled=False,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/rebuild")
+async def rebuild_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Clear source points and persist a queued rebuild request for Phase 5."""
+    try:
+        return await request_source_rebuild(project_id, source_id)
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
 
 
 @router.get("/config")
