@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import threading
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -185,13 +186,29 @@ class ColSmolRuntime:
 runtime = ColSmolRuntime()
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
+def _load_runtime_safely() -> None:
+    runtime.load_error = None
     try:
         runtime.load()
-    except Exception as exc:  # Keep health endpoint alive for actionable diagnostics.
-        runtime.load_error = str(exc)
+    except Exception as exc:
+        runtime.load_error = f"{type(exc).__name__}: {exc}"
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Keep the API responsive while the checkpoint downloads and loads.
+    if runtime.skip_model_load:
+        _load_runtime_safely()
+        yield
+        return
+
+    load_task = asyncio.create_task(asyncio.to_thread(_load_runtime_safely))
     yield
+
+    if not load_task.done():
+        load_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await load_task
 
 
 app = FastAPI(
