@@ -1,47 +1,50 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v2
-    # Credentials default to root:root for a zero-config local setup. Before
-    # exposing this instance to a network, set SURREAL_USER / SURREAL_PASSWORD
-    # in a .env file (see .env.example) — they are applied here and to the
-    # construction_os service below, so the two always stay in sync.
     command: start --log info --user ${SURREAL_USER:-root} --pass ${SURREAL_PASSWORD:-root} rocksdb:/mydata/mydatabase.db
-    user: root  # Required for bind mounts on Linux
+    user: root
     ports:
-      # Bound to localhost only: the construction_os service reaches this over
-      # the internal compose network regardless, so the host port is purely
-      # for local debugging (e.g. Surrealist, `surreal sql`). Exposing this
-      # on 0.0.0.0 would let anyone who can reach the host connect with the
-      # default root:root credentials.
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${MULTIVECTOR_SURREAL_PORT:-8001}:8000"
     volumes:
-      - ./surreal_data:/mydata
+      - multivector_surreal_data:/mydata
     environment:
       - SURREAL_EXPERIMENTAL_GRAPHQL=true
-    restart: always
-    pull_policy: always
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.2
+    ports:
+      - "127.0.0.1:${MULTIVECTOR_QDRANT_PORT:-6333}:6333"
+    volumes:
+      - multivector_qdrant_data:/qdrant/storage
+    restart: unless-stopped
 
   construction_os:
-    image: lfnovo/construction-os:v1-latest
+    build:
+      context: .
+    image: construction-os-multi-vector:local
     ports:
-      - "8502:8502"  # Web UI
-      - "5055:5055"  # REST API
+      - "${MULTIVECTOR_WEB_PORT:-8503}:8502"
+      - "${MULTIVECTOR_API_PORT:-5056}:5055"
     environment:
-      # REQUIRED: Change this to your own secret string
-      # This encrypts your API keys in the database
-      - CONSTRUCTION_OS_ENCRYPTION_KEY=my-super-duper-secret-key-808
-
-      # Database connection. SURREAL_USER / SURREAL_PASSWORD default to root:root
-      # for local use; override them in a .env file before exposing the instance
-      # (the same values configure the surrealdb service above).
+      - CONSTRUCTION_OS_ENCRYPTION_KEY=${CONSTRUCTION_OS_ENCRYPTION_KEY:-change-me-to-a-secret-string}
       - SURREAL_URL=ws://surrealdb:8000/rpc
       - SURREAL_USER=${SURREAL_USER:-root}
       - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
-      - SURREAL_NAMESPACE=construction_os
-      - SURREAL_DATABASE=construction_os
+      - SURREAL_NAMESPACE=${SURREAL_NAMESPACE:-construction_os_multivector}
+      - SURREAL_DATABASE=${SURREAL_DATABASE:-construction_os_multivector}
+      - CONSTRUCTION_OS_MULTIVECTOR_ENABLED=${CONSTRUCTION_OS_MULTIVECTOR_ENABLED:-true}
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_TIMEOUT_SECONDS=${QDRANT_TIMEOUT_SECONDS:-5}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
     volumes:
-      - ./construction_os_data:/app/data
+      - multivector_construction_os_data:/app/data
     depends_on:
       - surrealdb
-    restart: always
-    pull_policy: always
+      - qdrant
+    restart: unless-stopped
+
+volumes:
+  multivector_surreal_data:
+  multivector_qdrant_data:
+  multivector_construction_os_data:
