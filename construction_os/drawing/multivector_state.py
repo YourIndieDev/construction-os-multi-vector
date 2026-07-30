@@ -47,7 +47,7 @@ def state_record_id(project_id: str, source_id: str) -> str:
     if not project_id.strip() or not source_id.strip():
         raise ValueError("project_id and source_id are required")
     key = f"construction-os-multivector-state:{project_id}:{source_id}"
-    return f"{STATE_TABLE}:{uuid5(NAMESPACE_URL, key)}"
+    return f"{STATE_TABLE}:{uuid5(NAMESPACE_URL, key).hex}"
 
 
 def _unwrap_row(result: Any) -> dict[str, Any]:
@@ -96,7 +96,10 @@ def source_file_hash(source: Source) -> str:
 
 async def get_persisted_state(project_id: str, source_id: str) -> dict[str, Any]:
     record_id = state_record_id(project_id, source_id)
-    rows = await repo_query(f"SELECT * FROM {record_id} LIMIT 1")
+    rows = await repo_query(
+        "SELECT * FROM $id LIMIT 1",
+        {"id": ensure_record_id(record_id)},
+    )
     if rows:
         return rows[0]
     return {
