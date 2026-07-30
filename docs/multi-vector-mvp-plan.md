@@ -37,17 +37,21 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add image and query embedding endpoints.
 - [x] Add model cache volume and health reporting.
 - [x] Add service and app integration contract tests.
-- [ ] Run targeted app and service contract tests.
-- [ ] Verify multi-vector query and image output shape.
-- [ ] Verify RTX 5050 8 GB execution.
+- [x] Run targeted app and service contract tests.
+- [x] Verify multi-vector query and image output shape.
+- [x] Verify RTX 5050 8 GB execution.
+- [x] Confirm real query output: 12 vectors with dimension 128 using `vidore/colSmol-256M`.
 
 ## Phase 3: Qdrant collection and storage
 
-- [ ] Create versioned multi-vector collection.
-- [ ] Configure MaxSim and payload indexes.
-- [ ] Add page/crop metadata schema.
-- [ ] Add source-scoped delete and rebuild behavior.
-- [ ] Add storage tests.
+- [x] Create versioned multi-vector collection implementation.
+- [x] Configure cosine distance with the MaxSim comparator and payload indexes.
+- [x] Add page/crop metadata schema with deterministic point IDs.
+- [x] Add source-scoped delete, exact count, upsert, and rebuild behavior.
+- [x] Add storage tests: 7 tests pass in isolated mocked validation.
+- [x] Add an idempotent collection initialization API.
+- [ ] Run targeted storage tests in the application environment.
+- [ ] Initialize and validate the real Qdrant collection on the target laptop.
 
 ## Phase 4: Source opt-in and status
 
