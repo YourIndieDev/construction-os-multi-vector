@@ -8,26 +8,27 @@ describe('ProjectMultiVectorDialog', () => {
     vi.unstubAllGlobals()
   })
 
-  it('loads project sources and enables selected PDFs', async () => {
+  it('loads project sources and starts visual indexing for selected PDFs', async () => {
+    const sourceList = {
+      project_id: 'project:test',
+      sources: [
+        {
+          project_id: 'project:test',
+          source_id: 'source:plans',
+          source_title: 'Architectural Plans',
+          enabled: false,
+          status: 'disabled',
+          stale: false,
+          point_count: 0,
+          current_file_hash: 'abc123',
+        },
+      ],
+    }
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          project_id: 'project:test',
-          sources: [
-            {
-              project_id: 'project:test',
-              source_id: 'source:plans',
-              source_title: 'Architectural Plans',
-              enabled: false,
-              status: 'disabled',
-              stale: false,
-              point_count: 0,
-              current_file_hash: 'abc123',
-            },
-          ],
-        }),
+        json: async () => sourceList,
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -36,10 +37,17 @@ describe('ProjectMultiVectorDialog', () => {
           source_id: 'source:plans',
           source_title: 'Architectural Plans',
           enabled: true,
-          status: 'not_indexed',
+          status: 'queued',
           stale: false,
           point_count: 0,
           current_file_hash: 'abc123',
+        }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ...sourceList,
+          sources: [{ ...sourceList.sources[0], enabled: true, status: 'indexing' }],
         }),
       })
 
@@ -56,7 +64,7 @@ describe('ProjectMultiVectorDialog', () => {
 
     const sourceCheckbox = await screen.findByLabelText('Select Architectural Plans')
     fireEvent.click(sourceCheckbox)
-    fireEvent.click(screen.getByRole('button', { name: 'Enable selected' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable and index selected' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -66,7 +74,7 @@ describe('ProjectMultiVectorDialog', () => {
     })
   })
 
-  it('disables sources without uploaded PDF files', async () => {
+  it('disables selection for sources without uploaded PDF files', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -100,6 +108,6 @@ describe('ProjectMultiVectorDialog', () => {
 
     const sourceCheckbox = await screen.findByLabelText('Select Text source')
     expect(sourceCheckbox).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Enable selected' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Enable and index selected' })).toBeDisabled()
   })
 })

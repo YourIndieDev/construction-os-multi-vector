@@ -78,12 +78,14 @@ export function ProjectMultiVectorDialog({
   const [isActing, setIsActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadSources = useCallback(async () => {
+  const loadSources = useCallback(async (silent = false) => {
     if (!projectId) return
-    setIsLoading(true)
+    if (!silent) setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch(projectSourcesEndpoint(projectId))
+      const response = await fetch(projectSourcesEndpoint(projectId), {
+        cache: 'no-store',
+      })
       if (!response.ok) {
         throw new Error(await responseError(response))
       }
@@ -92,7 +94,7 @@ export function ProjectMultiVectorDialog({
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load project sources.')
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
   }, [projectId])
 
@@ -102,6 +104,19 @@ export function ProjectMultiVectorDialog({
       void loadSources()
     }
   }, [open, loadSources])
+
+  const hasActiveJobs = useMemo(
+    () => sources.some((source) => source.status === 'queued' || source.status === 'indexing'),
+    [sources]
+  )
+
+  useEffect(() => {
+    if (!open || !hasActiveJobs) return
+    const timer = window.setInterval(() => {
+      void loadSources(true)
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [open, hasActiveJobs, loadSources])
 
   const eligibleSourceIds = useMemo(
     () =>
@@ -149,11 +164,14 @@ export function ProjectMultiVectorDialog({
 
       const label =
         action === 'enable'
-          ? 'enabled'
+          ? 'queued for visual indexing'
           : action === 'disable'
             ? 'disabled'
-            : 'queued for rebuild'
+            : 'queued for a clean rebuild'
       toast.success(`${updated.length} visual index source${updated.length === 1 ? '' : 's'} ${label}.`)
+      if (action !== 'disable') {
+        window.setTimeout(() => void loadSources(true), 500)
+      }
     } catch (actionError) {
       const message = actionError instanceof Error ? actionError.message : 'Action failed.'
       setError(message)
@@ -172,8 +190,8 @@ export function ProjectMultiVectorDialog({
             Visual multi-vector index
           </DialogTitle>
           <DialogDescription>
-            Select architectural PDF sources in {projectName || 'this project'} and enable,
-            disable, or rebuild their experimental visual embeddings.
+            Select PDF sources in {projectName || 'this project'}. Starting an index renders
+            their pages, embeds the images with ColSmol, and stores the visual vectors in Qdrant.
           </DialogDescription>
         </DialogHeader>
 
@@ -184,6 +202,9 @@ export function ProjectMultiVectorDialog({
               <span className="ml-2 text-muted-foreground">
                 {eligibleSourceIds.length} eligible PDF source{eligibleSourceIds.length === 1 ? '' : 's'}
               </span>
+              {hasActiveJobs ? (
+                <span className="ml-2 font-medium text-blue-600">Indexing in progress</span>
+              ) : null}
             </div>
             <div className="flex gap-2">
               <Button
@@ -212,7 +233,7 @@ export function ProjectMultiVectorDialog({
                 onClick={() => void loadSources()}
                 aria-label="Refresh visual index status"
               >
-                <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+                <RefreshCw className={cn('h-4 w-4', (isLoading || hasActiveJobs) && 'animate-spin')} />
               </Button>
             </div>
           </div>
@@ -236,6 +257,7 @@ export function ProjectMultiVectorDialog({
               {sources.map((source) => {
                 const eligible = Boolean(source.current_file_hash) && !source.file_error
                 const selected = selectedIds.has(source.source_id)
+                const active = source.status === 'queued' || source.status === 'indexing'
                 return (
                   <label
                     className={cn(
@@ -246,7 +268,7 @@ export function ProjectMultiVectorDialog({
                   >
                     <Checkbox
                       checked={selected}
-                      disabled={!eligible || isActing}
+                      disabled={!eligible || isActing || active}
                       onCheckedChange={(checked) =>
                         toggleSource(source.source_id, checked === true)
                       }
@@ -258,7 +280,14 @@ export function ProjectMultiVectorDialog({
                           {source.source_title || 'Untitled source'}
                         </span>
                         <div className="flex items-center gap-2 text-xs">
-                          <span className="rounded-full border px-2 py-0.5">
+                          <span
+                            className={cn(
+                              'rounded-full border px-2 py-0.5',
+                              active && 'border-blue-500/50 text-blue-600',
+                              source.status === 'ready' && 'border-emerald-500/50 text-emerald-600',
+                              source.status === 'error' && 'border-destructive/50 text-destructive'
+                            )}
+                          >
                             {readableStatus(source.status)}
                           </span>
                           <span className="text-muted-foreground">
@@ -269,6 +298,11 @@ export function ProjectMultiVectorDialog({
                       <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
                         {source.source_id}
                       </div>
+                      {active ? (
+                        <div className="mt-1 text-xs text-blue-600">
+                          ColSmol is processing page and crop images. This view refreshes automatically.
+                        </div>
+                      ) : null}
                       {source.stale ? (
                         <div className="mt-1 text-xs font-medium text-amber-600">
                           File changed since the last visual index.
@@ -302,14 +336,14 @@ export function ProjectMultiVectorDialog({
             disabled={isActing || selectedCount === 0}
             onClick={() => void runSelectedAction('rebuild')}
           >
-            Queue rebuild
+            Rebuild selected
           </Button>
           <Button
             type="button"
             disabled={isActing || selectedCount === 0}
             onClick={() => void runSelectedAction('enable')}
           >
-            Enable selected
+            Enable and index selected
           </Button>
         </DialogFooter>
       </DialogContent>
