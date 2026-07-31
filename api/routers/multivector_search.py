@@ -43,7 +43,8 @@ class DrawingRetrievalModeRequest(BaseModel):
     existing_mode: RetrievalMode = "auto"
     search_sources: bool = True
     search_notes: bool = True
-    minimum_score: Optional[float] = None
+    existing_minimum_score: float = 0.2
+    multi_vector_minimum_score: Optional[float] = None
 
 
 @router.post("/search")
@@ -93,7 +94,8 @@ async def retrieve_drawings_by_mode(
             existing_mode=body.existing_mode,
             search_sources=body.search_sources,
             search_notes=body.search_notes,
-            minimum_score=body.minimum_score,
+            existing_minimum_score=body.existing_minimum_score,
+            multi_vector_minimum_score=body.multi_vector_minimum_score,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
