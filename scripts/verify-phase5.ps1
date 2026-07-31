@@ -104,7 +104,7 @@ function Wait-SourceReady {
         $last = Get-SourceStatus -Pid $Pid -Sid $Sid
         $processed = [int]$last.processed_assets
         $total = [int]$last.total_assets
-        Write-Host "$Label: $($last.status), points=$($last.point_count), progress=$processed/$total"
+        Write-Host "${Label}: $($last.status), points=$($last.point_count), progress=$processed/$total"
         if ($last.status -eq "ready" -and [int]$last.point_count -gt 0) {
             return $last
         }
