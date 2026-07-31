@@ -15,11 +15,14 @@ from construction_os.drawing.config import (
     get_drawing_retrieval_mode,
     load_drawing_extraction_config,
 )
+from construction_os.drawing.multivector_indexer import (
+    cancel_source_multivector_index,
+    queue_source_multivector_index,
+)
 from construction_os.drawing.multivector_state import (
     MultiVectorStateError,
     get_source_index_status,
     list_project_source_statuses,
-    request_source_rebuild,
     set_source_index_enabled,
 )
 from construction_os.drawing.multivector_store import (
@@ -65,7 +68,7 @@ def _state_http_error(exc: MultiVectorStateError) -> HTTPException:
     lowered = detail.lower()
     if "not found" in lowered or "not linked" in lowered:
         status_code = 404
-    elif "unable to reset qdrant" in lowered:
+    elif "qdrant" in lowered or "colsmol" in lowered:
         status_code = 503
     else:
         status_code = 400
@@ -175,7 +178,7 @@ async def get_page_image(run_id: str, page_id: str, kind: str = "render") -> Fil
 
 @router.post("/search")
 async def search_drawings(body: DrawingSearchRequest) -> Dict[str, Any]:
-    """Isolated drawing search API (Phase 2)."""
+    """Isolated drawing search API."""
     items = await retrieve_drawing_evidence(
         body.query,
         project_id=body.project_id,
@@ -236,7 +239,7 @@ async def enable_multivector_source(
     project_id: str,
     source_id: str,
 ) -> Dict[str, Any]:
-    """Persist opt-in without changing the normal source ingestion pipeline."""
+    """Enable a source for visual retrieval without starting a rebuild."""
     try:
         return await set_source_index_enabled(
             project_id,
@@ -247,13 +250,32 @@ async def enable_multivector_source(
         raise _state_http_error(exc) from exc
 
 
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/index")
+async def index_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Enable and start actual ColSmol/Qdrant indexing for one source."""
+    try:
+        return await queue_source_multivector_index(
+            project_id,
+            source_id,
+            force=False,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.post("/multivector/projects/{project_id}/sources/{source_id}/disable")
 async def disable_multivector_source(
     project_id: str,
     source_id: str,
 ) -> Dict[str, Any]:
-    """Disable retrieval while retaining existing Qdrant points for fast re-enable."""
+    """Cancel active indexing and disable this source for visual retrieval."""
     try:
+        cancel_source_multivector_index(project_id, source_id)
         return await set_source_index_enabled(
             project_id,
             source_id,
@@ -268,11 +290,17 @@ async def rebuild_multivector_source(
     project_id: str,
     source_id: str,
 ) -> Dict[str, Any]:
-    """Clear source points and persist a queued rebuild request for Phase 5."""
+    """Start a clean source rebuild and replace its Qdrant points."""
     try:
-        return await request_source_rebuild(project_id, source_id)
+        return await queue_source_multivector_index(
+            project_id,
+            source_id,
+            force=True,
+        )
     except MultiVectorStateError as exc:
         raise _state_http_error(exc) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/config")
