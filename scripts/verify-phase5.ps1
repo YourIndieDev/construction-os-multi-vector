@@ -17,6 +17,7 @@ Set-Location $repoRoot
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportDir = Join-Path $repoRoot ("phase5-reports/{0}" -f $timestamp)
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+
 $transcriptPath = Join-Path $reportDir "phase5-transcript.log"
 $summaryPath = Join-Path $reportDir "phase5-summary.json"
 $composeLogPath = Join-Path $reportDir "docker-compose.log"
@@ -103,21 +104,22 @@ function Resolve-FixturePdf {
     if (-not [string]::IsNullOrWhiteSpace($FixturePdf)) {
         $candidates.Add($FixturePdf)
     }
-    $candidates.Add((Join-Path $repoRoot "Page_001_P001.pdf"))
 
+    $candidates.Add((Join-Path $repoRoot "Page_007_P203.pdf"))
     if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
-        $candidates.Add((Join-Path $env:USERPROFILE "Downloads/Page_001_P001.pdf"))
-        $candidates.Add((Join-Path $env:USERPROFILE "Desktop/Page_001_P001.pdf"))
+        $candidates.Add((Join-Path $env:USERPROFILE "Downloads/Page_007_P203.pdf"))
+        $candidates.Add((Join-Path $env:USERPROFILE "Desktop/Page_007_P203.pdf"))
     }
 
     foreach ($candidate in $candidates) {
-        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and
+            (Test-Path -LiteralPath $candidate -PathType Leaf)) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
     }
 
     throw (
-        "Page_001_P001.pdf was not found. Save it in the repository root, your Downloads folder, " +
+        "Page_007_P203.pdf was not found. Save it in the repository root, your Downloads folder, " +
         "or pass -FixturePdf with its full path. Checked: {0}" -f ($candidates -join "; ")
     )
 }
@@ -130,33 +132,62 @@ function Bootstrap-TestFixture {
         throw "Unable to resolve the running construction_os container."
     }
 
+    $containerPdf = "/tmp/Page_007_P203.pdf"
     Write-Host ("Fixture PDF: {0}" -f $LocalPdf)
     Invoke-Native -FilePath "docker" -Arguments @(
         "cp",
         $LocalPdf,
-        ("{0}:/tmp/Page_001_P001.pdf" -f $containerId)
+        ("{0}:{1}" -f $containerId, $containerPdf)
     )
 
     Write-Host "> docker compose exec -T construction_os bootstrap_phase5_fixture.py" -ForegroundColor DarkGray
-    $bootstrapOutput = @(
-        & docker compose exec -T construction_os `
-            /app/.venv/bin/python `
-            /app/scripts/bootstrap_phase5_fixture.py `
-            /tmp/Page_001_P001.pdf 2>&1
-    )
-    $bootstrapExit = $LASTEXITCODE
+
+    $savedErrorPreference = $ErrorActionPreference
+    $nativePreferenceExists = Test-Path variable:PSNativeCommandUseErrorActionPreference
+    $savedNativePreference = $null
+    if ($nativePreferenceExists) {
+        $savedNativePreference = $PSNativeCommandUseErrorActionPreference
+    }
+
+    try {
+        # Python libraries may write normal debug logs to stderr. PowerShell 5 turns
+        # redirected native stderr into ErrorRecord objects, so allow the process to
+        # finish and decide success strictly from Docker's exit code.
+        $ErrorActionPreference = "Continue"
+        if ($nativePreferenceExists) {
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        $bootstrapOutput = @(
+            & docker compose exec -T construction_os `
+                /app/.venv/bin/python `
+                /app/scripts/bootstrap_phase5_fixture.py `
+                $containerPdf 2>&1
+        )
+        $bootstrapExit = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $savedErrorPreference
+        if ($nativePreferenceExists) {
+            $PSNativeCommandUseErrorActionPreference = $savedNativePreference
+        }
+    }
+
     foreach ($line in $bootstrapOutput) {
         Write-Host ([string]$line)
     }
+
     if ($bootstrapExit -ne 0) {
-        throw ("Fixture bootstrap exited with code {0}." -f $bootstrapExit)
+        $detail = (@($bootstrapOutput | Select-Object -Last 20) | ForEach-Object { [string]$_ }) -join "`n"
+        throw ("Fixture bootstrap exited with code {0}. Output:`n{1}" -f $bootstrapExit, $detail)
     }
 
     $marker = $bootstrapOutput |
         Where-Object { ([string]$_).StartsWith("PHASE5_FIXTURE_JSON=") } |
         Select-Object -Last 1
     if ($null -eq $marker) {
-        throw "Fixture bootstrap did not return PHASE5_FIXTURE_JSON."
+        $detail = (@($bootstrapOutput | Select-Object -Last 20) | ForEach-Object { [string]$_ }) -join "`n"
+        throw ("Fixture bootstrap completed but did not return PHASE5_FIXTURE_JSON. Output:`n{0}" -f $detail)
     }
 
     $prefix = "PHASE5_FIXTURE_JSON="
@@ -285,14 +316,14 @@ try {
         $summary.checks["frontend_tests"] = "skipped"
     }
 
-    Write-Step "Create Test project and attach the supplied P001 PDF"
+    Write-Step "Create Test project and attach the supplied P203 drawing PDF"
     $localFixture = Resolve-FixturePdf
     $fixture = Bootstrap-TestFixture -LocalPdf $localFixture
 
     $projectId = [string](Get-PropertyValue $fixture "project_id" "")
     $projectName = [string](Get-PropertyValue $fixture "project_name" "Test")
     $sourceId = [string](Get-PropertyValue $fixture "source_id" "")
-    $sourceTitle = [string](Get-PropertyValue $fixture "source_title" "Page_001_P001.pdf")
+    $sourceTitle = [string](Get-PropertyValue $fixture "source_title" "Page_007_P203.pdf")
     $storedPath = [string](Get-PropertyValue $fixture "file_path" "")
 
     if ([string]::IsNullOrWhiteSpace($projectId) -or [string]::IsNullOrWhiteSpace($sourceId)) {
