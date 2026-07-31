@@ -43,8 +43,9 @@ function Write-Step([string]$Message) {
 function Invoke-Native {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
-        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+        [Parameter(Mandatory = $true)][string[]]$Arguments
     )
+    Write-Host "> $FilePath $($Arguments -join ' ')" -ForegroundColor DarkGray
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "$FilePath exited with code $LASTEXITCODE"
@@ -100,8 +101,8 @@ function Wait-SourceReady {
     $last = $null
     while ((Get-Date) -lt $deadline) {
         $last = Get-SourceStatus -Pid $Pid -Sid $Sid
-        $processed = if ($null -ne $last.processed_assets) { $last.processed_assets } else { 0 }
-        $total = if ($null -ne $last.total_assets) { $last.total_assets } else { 0 }
+        $processed = [int]($last.processed_assets ?? 0)
+        $total = [int]($last.total_assets ?? 0)
         Write-Host "$Label: $($last.status), points=$($last.point_count), progress=$processed/$total"
         if ($last.status -eq "ready" -and [int]$last.point_count -gt 0) {
             return $last
@@ -135,14 +136,18 @@ try {
 
     if (-not $SkipBuild) {
         Write-Step "Build Phase 5 services"
-        Invoke-Native docker compose build construction_os colsmol
+        Invoke-Native -FilePath "docker" -Arguments @(
+            "compose", "build", "construction_os", "colsmol"
+        )
         $summary.checks.build = "passed"
     } else {
         $summary.checks.build = "skipped"
     }
 
     Write-Step "Start isolated stack"
-    Invoke-Native docker compose up -d qdrant colsmol construction_os
+    Invoke-Native -FilePath "docker" -Arguments @(
+        "compose", "up", "-d", "qdrant", "colsmol", "construction_os"
+    )
     $health = Wait-StackReady
     $summary.checks.stack_health = [ordered]@{
         result = "passed"
@@ -156,22 +161,33 @@ try {
     $summary.checks.collection = $collection
 
     Write-Step "Run ColSmol service contract tests"
-    Invoke-Native docker compose exec -T colsmol pytest -q tests/test_contract.py
+    Invoke-Native -FilePath "docker" -Arguments @(
+        "compose", "exec", "-T", "colsmol", "pytest", "-q", "tests/test_contract.py"
+    )
     $summary.checks.colsmol_contract_tests = "passed"
 
     Write-Step "Run Phase 5 backend and regression tests"
-    Invoke-Native docker compose run --rm --no-deps -e UV_NO_SYNC=0 construction_os uv run --group dev pytest -q `
-        tests/test_qdrant_integration.py `
-        tests/test_colsmol_integration.py `
-        tests/test_multivector_store.py `
-        tests/test_multivector_state.py `
-        tests/test_multivector_indexer.py
+    Invoke-Native -FilePath "docker" -Arguments @(
+        "compose", "run", "--rm", "--no-deps", "-e", "UV_NO_SYNC=0",
+        "construction_os", "uv", "run", "--group", "dev", "pytest", "-q",
+        "tests/test_qdrant_integration.py",
+        "tests/test_colsmol_integration.py",
+        "tests/test_multivector_store.py",
+        "tests/test_multivector_state.py",
+        "tests/test_multivector_indexer.py",
+        "tests/test_multivector_indexer_isolation.py"
+    )
     $summary.checks.backend_tests = "passed"
 
     if (-not $SkipFrontend) {
         Write-Step "Run visual-index frontend tests"
-        Invoke-Native docker build --target builder -t construction-os-multivector-test .
-        Invoke-Native docker run --rm construction-os-multivector-test sh -lc "cd /app/frontend && npm test -- src/components/multivector/ProjectMultiVectorDialog.test.tsx"
+        Invoke-Native -FilePath "docker" -Arguments @(
+            "build", "--target", "builder", "-t", "construction-os-multivector-test", "."
+        )
+        Invoke-Native -FilePath "docker" -Arguments @(
+            "run", "--rm", "construction-os-multivector-test", "sh", "-lc",
+            "cd /app/frontend && npm test -- src/components/multivector/ProjectMultiVectorDialog.test.tsx"
+        )
         $summary.checks.frontend_tests = "passed"
     } else {
         $summary.checks.frontend_tests = "skipped"
@@ -230,7 +246,7 @@ try {
     $summary.checks.primary_disable = "passed"
 
     Write-Step "Re-enable primary PDF"
-    $reenabled = Invoke-SourceAction -Pid $selectedProject.id -Sid $primary.source_id -Action "enable"
+    $null = Invoke-SourceAction -Pid $selectedProject.id -Sid $primary.source_id -Action "enable"
     $readyAgain = Wait-SourceReady -Pid $selectedProject.id -Sid $primary.source_id -Label "Primary re-enable"
     $summary.primary_source.reenabled_points = [int]$readyAgain.point_count
     $summary.checks.primary_reenable = "passed"
@@ -258,16 +274,16 @@ try {
         $summary.secondary_source.ready_points = [int]$secondaryReady.point_count
         $summary.checks.secondary_independence = "passed"
     } else {
-        Write-Warning "Only one eligible PDF exists in this project. Real second-source verification was skipped; source isolation remains covered by the automated test suite."
+        Write-Warning "Only one eligible PDF exists in this project. Real second-source verification was skipped; two-source isolation was verified by the automated test suite."
         $summary.secondary_source = [ordered]@{
             result = "skipped"
             reason = "Only one eligible PDF was available"
-            automated_coverage = "tests/test_multivector_indexer.py and tests/test_multivector_store.py"
+            automated_coverage = "tests/test_multivector_indexer_isolation.py"
         }
-        $summary.checks.secondary_independence = "covered_by_automated_tests"
+        $summary.checks.secondary_independence = "covered_by_automated_test"
     }
 
-    Write-Step "Final health and collection verification"
+    Write-Step "Final health verification"
     $finalHealth = Wait-StackReady
     $summary.checks.final_health = [ordered]@{
         result = "passed"
@@ -282,18 +298,16 @@ catch {
     $summary.result = "failed"
     $summary.error = $_.Exception.Message
     Write-Host "`nPHASE 5 VERIFICATION FAILED: $($summary.error)" -ForegroundColor Red
-    try {
-        docker compose logs --no-color --tail=400 construction_os colsmol qdrant | Out-File -FilePath $composeLogPath -Encoding utf8
-    } catch {
-        Write-Warning "Could not collect Docker logs: $($_.Exception.Message)"
-    }
 }
 finally {
     $summary.completed_at = (Get-Date).ToString("o")
     $summary | ConvertTo-Json -Depth 12 | Out-File -FilePath $summaryPath -Encoding utf8
     try {
-        docker compose logs --no-color --tail=400 construction_os colsmol qdrant | Out-File -FilePath $composeLogPath -Encoding utf8
-    } catch {}
+        & docker compose logs --no-color --tail=400 construction_os colsmol qdrant |
+            Out-File -FilePath $composeLogPath -Encoding utf8
+    } catch {
+        Write-Warning "Could not collect Docker logs: $($_.Exception.Message)"
+    }
     Stop-Transcript | Out-Null
     Write-Host "Summary: $summaryPath"
     Write-Host "Transcript: $transcriptPath"
