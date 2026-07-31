@@ -1,4 +1,4 @@
-"""Isolated API for ColSmol + Qdrant drawing retrieval."""
+"""Isolated APIs for drawing retrieval experiments."""
 
 from __future__ import annotations
 
@@ -13,7 +13,13 @@ from construction_os.drawing.multivector_retrieval import (
 )
 from construction_os.drawing.multivector_search import MultiVectorSearchError
 from construction_os.drawing.multivector_state import MultiVectorStateError
+from construction_os.drawing.retrieval_modes import (
+    DrawingRetrievalMode,
+    RetrievalModeExecutionError,
+    retrieve_with_modes,
+)
 from construction_os.integrations.colsmol import ColSmolEmbeddingError
+from construction_os.retrieval.types import RetrievalMode
 
 router = APIRouter(prefix="/multivector", tags=["drawing-multivector-search"])
 
@@ -23,6 +29,20 @@ class MultiVectorSearchRequest(BaseModel):
     project_id: str = Field(..., min_length=1)
     source_ids: list[str] = Field(default_factory=list)
     limit: int = Field(default=10, ge=1, le=50)
+    minimum_score: Optional[float] = None
+
+
+class DrawingRetrievalModeRequest(BaseModel):
+    """Request for existing, multi-vector, or side-by-side retrieval."""
+
+    query: str = Field(..., min_length=1, max_length=4000)
+    project_id: str = Field(..., min_length=1)
+    mode: DrawingRetrievalMode = "existing"
+    source_ids: list[str] = Field(default_factory=list)
+    limit: int = Field(default=10, ge=1, le=50)
+    existing_mode: RetrievalMode = "auto"
+    search_sources: bool = True
+    search_notes: bool = True
     minimum_score: Optional[float] = None
 
 
@@ -55,4 +75,27 @@ async def search_multivector_drawings(
         MultiVectorSearchError,
         httpx.HTTPError,
     ) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/retrieve")
+async def retrieve_drawings_by_mode(
+    body: DrawingRetrievalModeRequest,
+) -> dict[str, Any]:
+    """Run existing retrieval, visual retrieval, or separate comparison rankings."""
+    try:
+        return await retrieve_with_modes(
+            body.query,
+            project_id=body.project_id,
+            mode=body.mode,
+            source_ids=body.source_ids,
+            limit=body.limit,
+            existing_mode=body.existing_mode,
+            search_sources=body.search_sources,
+            search_notes=body.search_notes,
+            minimum_score=body.minimum_score,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RetrievalModeExecutionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
