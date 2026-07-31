@@ -43,6 +43,8 @@ def test_retrieve_api_defaults_to_existing(monkeypatch):
     assert observed["mode"] == "existing"
     assert observed["existing_mode"] == "auto"
     assert observed["source_ids"] == []
+    assert observed["existing_minimum_score"] == 0.2
+    assert observed["multi_vector_minimum_score"] is None
 
 
 def test_retrieve_api_forwards_compare_options(monkeypatch):
@@ -71,7 +73,8 @@ def test_retrieve_api_forwards_compare_options(monkeypatch):
         limit=5,
         existing_mode="hybrid",
         search_notes=False,
-        minimum_score=0.3,
+        existing_minimum_score=0.3,
+        multi_vector_minimum_score=8.0,
     )
 
     result = asyncio.run(api.retrieve_drawings_by_mode(body))
@@ -82,4 +85,5 @@ def test_retrieve_api_forwards_compare_options(monkeypatch):
     assert observed["limit"] == 5
     assert observed["existing_mode"] == "hybrid"
     assert observed["search_notes"] is False
-    assert observed["minimum_score"] == 0.3
+    assert observed["existing_minimum_score"] == 0.3
+    assert observed["multi_vector_minimum_score"] == 8.0
