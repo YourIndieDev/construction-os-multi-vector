@@ -62,16 +62,20 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add a visible project-header `Visual index` dialog with multi-select enable, disable, and rebuild controls.
 - [x] Add backend state tests and frontend control tests.
 - [ ] Run the updated project visual-index frontend test on the target laptop.
-- [ ] Verify multi-select enable, disable, status, and queued rebuild with real project sources.
+- [ ] Verify multi-select enable, disable, status, and rebuild with real project sources.
 
 ## Phase 5: Indexing job
 
-- [ ] Reuse existing drawing page and crop assets.
-- [ ] Embed selected images one at a time.
-- [ ] Publish vectors and payloads to Qdrant.
-- [ ] Track progress, retries, errors, and idempotency.
-- [ ] Keep normal drawing extraction independent.
-- [ ] Add tests.
+- [x] Reuse completed drawing page, grid-crop, and region-crop assets when available.
+- [x] Render page and grid-crop assets directly when drawing extraction assets are unavailable.
+- [x] Embed selected images one at a time through the GPU ColSmol service.
+- [x] Publish each image multi-vector and metadata payload to Qdrant.
+- [x] Track queued, indexing, ready, error, point-count, and retry/rebuild state.
+- [x] Keep normal drawing extraction independent.
+- [x] Add targeted worker and UI polling tests.
+- [ ] Run Phase 5 backend and frontend tests on the target laptop.
+- [ ] Verify one real PDF reaches `ready` with a Qdrant point count greater than zero.
+- [ ] Verify a second source can be indexed independently.
 
 ## Phase 6: Multi-vector retrieval
 
