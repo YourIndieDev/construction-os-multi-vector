@@ -113,6 +113,9 @@ async def get_persisted_state(project_id: str, source_id: str) -> dict[str, Any]
         "indexed_run_id": None,
         "indexed_at": None,
         "last_error": None,
+        "processed_assets": 0,
+        "total_assets": 0,
+        "current_asset": None,
     }
 
 
@@ -212,6 +215,9 @@ async def get_source_index_status(
         "point_count": point_count
         if point_count is not None
         else int(state.get("point_count") or 0),
+        "processed_assets": int(state.get("processed_assets") or 0),
+        "total_assets": int(state.get("total_assets") or 0),
+        "current_asset": state.get("current_asset"),
         "indexed_run_id": state.get("indexed_run_id"),
         "indexed_at": state.get("indexed_at"),
         "rebuild_requested_at": state.get("rebuild_requested_at"),
@@ -243,6 +249,9 @@ async def set_source_index_enabled(
             indexed_run_id=current.get("indexed_run_id"),
             indexed_at=current.get("indexed_at"),
             last_error=current.get("last_error"),
+            processed_assets=int(current.get("processed_assets") or 0),
+            total_assets=int(current.get("total_assets") or 0),
+            current_asset=None,
             disabled_at=_now(),
         )
         return await get_source_index_status(
@@ -271,6 +280,9 @@ async def set_source_index_enabled(
         indexed_run_id=current.get("indexed_run_id"),
         indexed_at=current.get("indexed_at"),
         last_error=None,
+        processed_assets=int(current.get("processed_assets") or 0),
+        total_assets=int(current.get("total_assets") or 0),
+        current_asset=None,
         enabled_at=_now(),
     )
     return await get_source_index_status(
@@ -305,6 +317,9 @@ async def request_source_rebuild(
         indexed_run_id=None,
         indexed_at=None,
         last_error=None,
+        processed_assets=0,
+        total_assets=0,
+        current_asset=None,
         rebuild_requested_at=_now(),
     )
     return await get_source_index_status(
@@ -331,6 +346,9 @@ async def mark_source_indexing(
         indexed_run_id=run_id or current.get("indexed_run_id"),
         indexed_at=current.get("indexed_at"),
         last_error=None,
+        processed_assets=int(current.get("processed_assets") or 0),
+        total_assets=int(current.get("total_assets") or 0),
+        current_asset=current.get("current_asset"),
         indexing_started_at=_now(),
     )
 
@@ -349,6 +367,9 @@ async def mark_source_index_ready(
         enabled=True,
         status="ready",
         point_count=max(point_count, 0),
+        processed_assets=max(point_count, 0),
+        total_assets=max(point_count, 0),
+        current_asset=None,
         indexed_file_hash=file_hash,
         indexed_run_id=run_id,
         indexed_at=_now(),
@@ -370,30 +391,12 @@ async def mark_source_index_error(
         enabled=True,
         status="error",
         point_count=int(current.get("point_count") or 0),
+        processed_assets=int(current.get("processed_assets") or 0),
+        total_assets=int(current.get("total_assets") or 0),
+        current_asset=current.get("current_asset"),
         indexed_file_hash=current.get("indexed_file_hash"),
         indexed_run_id=current.get("indexed_run_id"),
         indexed_at=current.get("indexed_at"),
         last_error=error[:4000],
         failed_at=_now(),
     )
-
-
-async def list_project_source_statuses(project_id: str) -> list[dict[str, Any]]:
-    try:
-        project = await Project.get(project_id)
-    except Exception as exc:
-        raise MultiVectorStateError(f"Project not found: {project_id}") from exc
-
-    sources = await project.get_sources()
-    results: list[dict[str, Any]] = []
-    for source in sources:
-        if not source.id:
-            continue
-        results.append(
-            await get_source_index_status(
-                project_id,
-                source.id,
-                include_qdrant_count=False,
-            )
-        )
-    return results
