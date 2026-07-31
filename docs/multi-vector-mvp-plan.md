@@ -63,7 +63,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add backend state tests and frontend control tests.
 - [x] Restore the project source-status listing helper used by the normal UI and retrieval filters.
 - [ ] Run the updated project visual-index frontend test on the target laptop.
-- [ ] Verify multi-select enable, disable, status, and rebuild with real project sources.
+- [ ] Verify multi-select disable and rebuild with real project sources. Enable and live status were verified with P203.
 
 ## Phase 5: Indexing job
 
@@ -75,9 +75,9 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Keep normal drawing extraction independent.
 - [x] Add targeted worker, two-source isolation, and UI polling tests.
 - [x] Add `scripts/verify-phase5.ps1` for sequential unattended build, tests, real indexing, disable, re-enable, rebuild, health checks, and local reports.
-- [ ] Run the unattended Phase 5 verifier on the target laptop.
-- [ ] Verify one real PDF reaches `ready` with a Qdrant point count greater than zero.
-- [ ] Verify a second real source independently when available; otherwise retain automated two-source isolation coverage.
+- [ ] Run the unattended Phase 5 verifier on the target laptop; manual UI verification was used instead because of harness-specific PowerShell issues.
+- [x] Verify one real PDF reaches `ready` with a Qdrant point count greater than zero: P203 reached `ready` with 7 points.
+- [x] Retain automated two-source isolation coverage because only one real source was available.
 
 ## Phase 6: Multi-vector retrieval
 
@@ -89,15 +89,17 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add isolated `/drawing-extractions/multivector/search` API.
 - [x] Add query-client, Qdrant-filter, ready-source, deduplication, evidence, and API tests.
 - [x] Add gated `scripts/verify-phase6.ps1`; it requires a passing Phase 5 report.
-- [ ] Run Phase 6 tests in the application container on the target laptop.
-- [ ] Verify a real ColSmol query returns filtered Qdrant evidence with images and unique source/page pairs.
+- [ ] Run the full Phase 6 unit and regression suite in the application container on the target laptop.
+- [x] Verify a real ColSmol query returns filtered Qdrant evidence with images and unique source/page pairs: P203 returned one result from 7 indexed points.
 
 ## Phase 7: Retrieval modes
 
-- [ ] Add `existing`, `multi_vector`, and `compare` modes.
-- [ ] Preserve existing retrieval as the default and fallback.
-- [ ] Record rankings and timings without mixing scores.
-- [ ] Add tests.
+- [x] Add `existing`, `multi_vector`, and `compare` modes through an isolated retrieval-mode orchestrator and API.
+- [x] Preserve existing retrieval as the default and as fallback for failed or empty multi-vector requests.
+- [x] Record separate rankings, timings, thresholds, and score spaces without score fusion.
+- [x] Keep the Phase 6 multi-vector search endpoint unchanged for backward compatibility.
+- [x] Add unit and API contract tests for default behavior, comparison, fallback, timing, source forwarding, and independent thresholds.
+- [ ] Run the targeted Phase 7 tests and real comparison request on the target laptop.
 
 ## Phase 8: Chat integration
 
