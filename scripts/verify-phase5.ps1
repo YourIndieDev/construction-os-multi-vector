@@ -20,6 +20,7 @@ New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 $transcriptPath = Join-Path $reportDir "phase5-transcript.log"
 $summaryPath = Join-Path $reportDir "phase5-summary.json"
 $composeLogPath = Join-Path $reportDir "docker-compose.log"
+$keepAwakeActive = $false
 
 $summary = [ordered]@{
     started_at = (Get-Date).ToString("o")
@@ -101,8 +102,8 @@ function Wait-SourceReady {
     $last = $null
     while ((Get-Date) -lt $deadline) {
         $last = Get-SourceStatus -Pid $Pid -Sid $Sid
-        $processed = [int]($last.processed_assets ?? 0)
-        $total = [int]($last.total_assets ?? 0)
+        $processed = [int]$last.processed_assets
+        $total = [int]$last.total_assets
         Write-Host "$Label: $($last.status), points=$($last.point_count), progress=$processed/$total"
         if ($last.status -eq "ready" -and [int]$last.point_count -gt 0) {
             return $last
@@ -121,6 +122,21 @@ function Get-EligibleSources([string]$Pid) {
     return @($response.sources | Where-Object {
         $_.current_file_hash -and -not $_.file_error
     })
+}
+
+if ($env:OS -eq "Windows_NT") {
+    if (-not ("Phase5ExecutionState" -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class Phase5ExecutionState {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint SetThreadExecutionState(uint flags);
+}
+"@
+    }
+    [Phase5ExecutionState]::SetThreadExecutionState([uint32]0x80000001) | Out-Null
+    $keepAwakeActive = $true
 }
 
 Start-Transcript -Path $transcriptPath -Force | Out-Null
@@ -307,6 +323,9 @@ finally {
             Out-File -FilePath $composeLogPath -Encoding utf8
     } catch {
         Write-Warning "Could not collect Docker logs: $($_.Exception.Message)"
+    }
+    if ($keepAwakeActive) {
+        [Phase5ExecutionState]::SetThreadExecutionState([uint32]0x80000000) | Out-Null
     }
     Stop-Transcript | Out-Null
     Write-Host "Summary: $summaryPath"
