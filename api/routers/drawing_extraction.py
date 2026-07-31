@@ -239,15 +239,17 @@ async def enable_multivector_source(
     project_id: str,
     source_id: str,
 ) -> Dict[str, Any]:
-    """Enable a source for visual retrieval without starting a rebuild."""
+    """Enable a source and immediately start its first visual index when needed."""
     try:
-        return await set_source_index_enabled(
+        return await queue_source_multivector_index(
             project_id,
             source_id,
-            enabled=True,
+            force=False,
         )
     except MultiVectorStateError as exc:
         raise _state_http_error(exc) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/multivector/projects/{project_id}/sources/{source_id}/index")
