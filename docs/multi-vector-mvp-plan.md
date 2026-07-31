@@ -61,6 +61,7 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Add isolated `/multivector` UI status and manual controls.
 - [x] Add a visible project-header `Visual index` dialog with multi-select enable, disable, and rebuild controls.
 - [x] Add backend state tests and frontend control tests.
+- [x] Restore the project source-status listing helper used by the normal UI and retrieval filters.
 - [ ] Run the updated project visual-index frontend test on the target laptop.
 - [ ] Verify multi-select enable, disable, status, and rebuild with real project sources.
 
@@ -80,11 +81,16 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 
 ## Phase 6: Multi-vector retrieval
 
-- [ ] Embed chat query with the same model.
-- [ ] Search Qdrant with MaxSim and project/source filters.
-- [ ] Deduplicate overlapping image results.
-- [ ] Return existing `EvidenceItem` format.
-- [ ] Add isolated search API and tests.
+- [x] Add a validated ColSmol query-embedding client using the same model service.
+- [x] Add Qdrant MaxSim query support with project, ready-source, and optional asset filters.
+- [x] Exclude disabled, stale, unindexed, and error sources before Qdrant search.
+- [x] Deduplicate page and crop overlaps by retaining the highest-scoring hit per source page.
+- [x] Return the existing `EvidenceItem` and Search API result shape with visual metadata.
+- [x] Add isolated `/drawing-extractions/multivector/search` API.
+- [x] Add query-client, Qdrant-filter, ready-source, deduplication, evidence, and API tests.
+- [x] Add gated `scripts/verify-phase6.ps1`; it requires a passing Phase 5 report.
+- [ ] Run Phase 6 tests in the application container on the target laptop.
+- [ ] Verify a real ColSmol query returns filtered Qdrant evidence with images and unique source/page pairs.
 
 ## Phase 7: Retrieval modes
 
