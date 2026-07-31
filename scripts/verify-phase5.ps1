@@ -15,8 +15,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$reportDir = Join-Path $repoRoot "phase5-reports/$timestamp"
+$reportDir = Join-Path $repoRoot ("phase5-reports/{0}" -f $timestamp)
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+
 $transcriptPath = Join-Path $reportDir "phase5-transcript.log"
 $summaryPath = Join-Path $reportDir "phase5-summary.json"
 $composeLogPath = Join-Path $reportDir "docker-compose.log"
@@ -38,12 +39,20 @@ $summary = [ordered]@{
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "`n=== $Message ===" -ForegroundColor Cyan
+    Write-Host ("`n=== {0} ===" -f $Message) -ForegroundColor Cyan
 }
 
 function Has-Property {
     param($Object, [string]$Name)
     return $null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name
+}
+
+function Get-PropertyValue {
+    param($Object, [string]$Name, $Default = $null)
+    if (Has-Property $Object $Name) {
+        return $Object.$Name
+    }
+    return $Default
 }
 
 function Invoke-Native {
@@ -52,10 +61,10 @@ function Invoke-Native {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    Write-Host "> $FilePath $($Arguments -join ' ')" -ForegroundColor DarkGray
+    Write-Host ("> {0} {1}" -f $FilePath, ($Arguments -join " ")) -ForegroundColor DarkGray
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath exited with code $LASTEXITCODE"
+        throw ("{0} exited with code {1}" -f $FilePath, $LASTEXITCODE)
     }
 }
 
@@ -65,7 +74,7 @@ function Invoke-Api {
         [Parameter(Mandatory = $true)][string]$Path
     )
 
-    $uri = if ($Path.StartsWith("http")) { $Path } else { "$ApiBase$Path" }
+    $uri = if ($Path.StartsWith("http")) { $Path } else { "{0}{1}" -f $ApiBase, $Path }
     if ($Method -eq "GET") {
         return Invoke-RestMethod -Method Get -Uri $uri -TimeoutSec 60
     }
@@ -74,22 +83,27 @@ function Invoke-Api {
 
 function Wait-StackReady {
     $deadline = (Get-Date).AddMinutes(20)
-    $last = $null
+    $lastDetail = "No response"
 
     while ((Get-Date) -lt $deadline) {
         try {
-            $last = Invoke-Api -Method GET -Path "/api/drawing-extractions/multivector/health"
-            if ($last.qdrant.available -and $last.colsmol.available) {
-                return $last
+            $health = Invoke-Api -Method GET -Path "/api/drawing-extractions/multivector/health"
+            $qdrant = Get-PropertyValue $health "qdrant"
+            $colsmol = Get-PropertyValue $health "colsmol"
+            if ($null -ne $qdrant -and $null -ne $colsmol -and
+                [bool](Get-PropertyValue $qdrant "available" $false) -and
+                [bool](Get-PropertyValue $colsmol "available" $false)) {
+                return $health
             }
+            $lastDetail = $health | ConvertTo-Json -Depth 8 -Compress
         }
         catch {
-            $last = $_.Exception.Message
+            $lastDetail = $_.Exception.Message
         }
         Start-Sleep -Seconds 5
     }
 
-    throw "Multi-vector stack did not become ready. Last result: $($last | ConvertTo-Json -Depth 8 -Compress)"
+    throw ("Multi-vector stack did not become ready. Last result: {0}" -f $lastDetail)
 }
 
 function Get-SourceStatus {
@@ -97,7 +111,7 @@ function Get-SourceStatus {
 
     $p = [uri]::EscapeDataString($Pid)
     $s = [uri]::EscapeDataString($Sid)
-    return Invoke-Api -Method GET -Path "/api/drawing-extractions/multivector/projects/$p/sources/$s"
+    return Invoke-Api -Method GET -Path ("/api/drawing-extractions/multivector/projects/{0}/sources/{1}" -f $p, $s)
 }
 
 function Invoke-SourceAction {
@@ -105,7 +119,7 @@ function Invoke-SourceAction {
 
     $p = [uri]::EscapeDataString($Pid)
     $s = [uri]::EscapeDataString($Sid)
-    return Invoke-Api -Method POST -Path "/api/drawing-extractions/multivector/projects/$p/sources/$s/$Action"
+    return Invoke-Api -Method POST -Path ("/api/drawing-extractions/multivector/projects/{0}/sources/{1}/{2}" -f $p, $s, $Action)
 }
 
 function Wait-SourceReady {
@@ -116,49 +130,45 @@ function Wait-SourceReady {
 
     while ((Get-Date) -lt $deadline) {
         $last = Get-SourceStatus -Pid $Pid -Sid $Sid
-        $processed = if (Has-Property $last "processed_assets") { [int]$last.processed_assets } else { 0 }
-        $total = if (Has-Property $last "total_assets") { [int]$last.total_assets } else { 0 }
-        $points = if (Has-Property $last "point_count") { [int]$last.point_count } else { 0 }
-        $status = if (Has-Property $last "status") { [string]$last.status } else { "unknown" }
+        $processed = [int](Get-PropertyValue $last "processed_assets" 0)
+        $total = [int](Get-PropertyValue $last "total_assets" 0)
+        $points = [int](Get-PropertyValue $last "point_count" 0)
+        $status = [string](Get-PropertyValue $last "status" "unknown")
 
-        Write-Host "${Label}: $status, points=$points, progress=$processed/$total"
+        Write-Host ("{0}: {1}, points={2}, progress={3}/{4}" -f $Label, $status, $points, $processed, $total)
 
         if ($status -eq "ready" -and $points -gt 0) {
             return $last
         }
         if ($status -eq "error") {
-            $detail = if (Has-Property $last "last_error") { [string]$last.last_error } else { "Unknown indexing error" }
-            throw "$Label failed: $detail"
+            $detail = [string](Get-PropertyValue $last "last_error" "Unknown indexing error")
+            throw ("{0} failed: {1}" -f $Label, $detail)
         }
         Start-Sleep -Seconds 5
     }
 
-    throw "$Label timed out after $TimeoutMinutes minutes. Last state: $($last | ConvertTo-Json -Depth 8 -Compress)"
+    $lastJson = $last | ConvertTo-Json -Depth 8 -Compress
+    throw ("{0} timed out after {1} minutes. Last state: {2}" -f $Label, $TimeoutMinutes, $lastJson)
 }
 
 function Get-EligibleSources {
     param([string]$Pid)
 
     $p = [uri]::EscapeDataString($Pid)
-    $response = Invoke-Api -Method GET -Path "/api/drawing-extractions/multivector/projects/$p/sources"
+    $response = Invoke-Api -Method GET -Path ("/api/drawing-extractions/multivector/projects/{0}/sources" -f $p)
     $sources = if (Has-Property $response "sources") { @($response.sources) } else { @($response) }
 
     return @($sources | Where-Object {
-        (Has-Property $_ "current_file_hash") -and
-        -not [string]::IsNullOrWhiteSpace([string]$_.current_file_hash) -and
-        (-not (Has-Property $_ "file_error") -or [string]::IsNullOrWhiteSpace([string]$_.file_error))
+        $hash = [string](Get-PropertyValue $_ "current_file_hash" "")
+        $fileError = [string](Get-PropertyValue $_ "file_error" "")
+        -not [string]::IsNullOrWhiteSpace($hash) -and [string]::IsNullOrWhiteSpace($fileError)
     })
 }
 
 function Get-Projects {
     $response = Invoke-Api -Method GET -Path "/api/projects?archived=false&order_by=updated%20desc"
-
-    if (Has-Property $response "projects") {
-        return @($response.projects)
-    }
-    if (Has-Property $response "results") {
-        return @($response.results)
-    }
+    if (Has-Property $response "projects") { return @($response.projects) }
+    if (Has-Property $response "results") { return @($response.results) }
     return @($response)
 }
 
@@ -167,18 +177,16 @@ try {
     Write-Step "Record repository state"
     $summary.branch = (& git branch --show-current).Trim()
     $summary.commit = (& git rev-parse HEAD).Trim()
-    Write-Host "Branch: $($summary.branch)"
-    Write-Host "Commit: $($summary.commit)"
+    Write-Host ("Branch: {0}" -f $summary.branch)
+    Write-Host ("Commit: {0}" -f $summary.commit)
 
     if ($summary.branch -ne "multi-vector") {
-        throw "Run this script from the multi-vector branch, not '$($summary.branch)'."
+        throw ("Run this script from the multi-vector branch, not '{0}'." -f $summary.branch)
     }
 
     if (-not $SkipBuild) {
         Write-Step "Build Phase 5 services"
-        Invoke-Native -FilePath "docker" -Arguments @(
-            "compose", "build", "construction_os", "colsmol"
-        )
+        Invoke-Native -FilePath "docker" -Arguments @("compose", "build", "construction_os", "colsmol")
         $summary.checks["build"] = "passed"
     }
     else {
@@ -186,24 +194,20 @@ try {
     }
 
     Write-Step "Start isolated stack"
-    Invoke-Native -FilePath "docker" -Arguments @(
-        "compose", "up", "-d", "qdrant", "colsmol", "construction_os"
-    )
+    Invoke-Native -FilePath "docker" -Arguments @("compose", "up", "-d", "qdrant", "colsmol", "construction_os")
     $health = Wait-StackReady
     $summary.checks["stack_health"] = [ordered]@{
         result = "passed"
-        qdrant = $health.qdrant.status
-        colsmol = $health.colsmol.status
-        gpu = $health.colsmol.detail.gpu_name
+        qdrant = [string](Get-PropertyValue $health.qdrant "status" "unknown")
+        colsmol = [string](Get-PropertyValue $health.colsmol "status" "unknown")
+        gpu = Get-PropertyValue (Get-PropertyValue $health.colsmol "detail") "gpu_name"
     }
 
     Write-Step "Ensure Qdrant multi-vector collection"
     $summary.checks["collection"] = Invoke-Api -Method POST -Path "/api/drawing-extractions/multivector/collection/ensure"
 
     Write-Step "Run ColSmol service contract tests"
-    Invoke-Native -FilePath "docker" -Arguments @(
-        "compose", "exec", "-T", "colsmol", "pytest", "-q", "tests/test_contract.py"
-    )
+    Invoke-Native -FilePath "docker" -Arguments @("compose", "exec", "-T", "colsmol", "pytest", "-q", "tests/test_contract.py")
     $summary.checks["colsmol_contract_tests"] = "passed"
 
     Write-Step "Run Phase 5 backend and regression tests"
@@ -221,9 +225,7 @@ try {
 
     if (-not $SkipFrontend) {
         Write-Step "Run visual-index frontend tests"
-        Invoke-Native -FilePath "docker" -Arguments @(
-            "build", "--target", "builder", "-t", "construction-os-multivector-test", "."
-        )
+        Invoke-Native -FilePath "docker" -Arguments @("build", "--target", "builder", "-t", "construction-os-multivector-test", ".")
         Invoke-Native -FilePath "docker" -Arguments @(
             "run", "--rm", "construction-os-multivector-test", "sh", "-lc",
             "cd /app/frontend && npm test -- src/components/multivector/ProjectMultiVectorDialog.test.tsx"
@@ -241,28 +243,22 @@ try {
 
     if (-not [string]::IsNullOrWhiteSpace($ProjectId)) {
         $selectedProject = $projects | Where-Object {
-            (Has-Property $_ "id") -and [string]$_.id -eq $ProjectId
+            [string](Get-PropertyValue $_ "id" "") -eq $ProjectId
         } | Select-Object -First 1
 
         if ($null -eq $selectedProject) {
-            throw "Project '$ProjectId' was not returned by the projects API."
+            throw ("Project '{0}' was not returned by the projects API." -f $ProjectId)
         }
         $eligible = @(Get-EligibleSources -Pid $ProjectId)
     }
     else {
         foreach ($project in $projects) {
-            if (-not (Has-Property $project "id")) {
-                continue
-            }
-
-            $candidateProjectId = [string]$project.id
-            if ([string]::IsNullOrWhiteSpace($candidateProjectId)) {
-                continue
-            }
+            $candidateProjectId = [string](Get-PropertyValue $project "id" "")
+            if ([string]::IsNullOrWhiteSpace($candidateProjectId)) { continue }
 
             try {
                 $candidate = @(Get-EligibleSources -Pid $candidateProjectId)
-                Write-Host "Checked project $candidateProjectId: $($candidate.Count) eligible PDF source(s)"
+                Write-Host ("Checked project {0}: {1} eligible PDF source(s)" -f $candidateProjectId, $candidate.Count)
                 if ($candidate.Count -gt 0) {
                     $selectedProject = $project
                     $eligible = $candidate
@@ -270,7 +266,7 @@ try {
                 }
             }
             catch {
-                Write-Warning "Skipping project $candidateProjectId: $($_.Exception.Message)"
+                Write-Warning ("Skipping project {0}: {1}" -f $candidateProjectId, $_.Exception.Message)
             }
         }
     }
@@ -279,71 +275,66 @@ try {
         throw "No project containing an accessible uploaded PDF was found."
     }
 
-    $selectedProjectId = [string]$selectedProject.id
-    $selectedProjectName = if (Has-Property $selectedProject "name") { [string]$selectedProject.name } else { $selectedProjectId }
+    $selectedProjectId = [string](Get-PropertyValue $selectedProject "id" "")
+    $selectedProjectName = [string](Get-PropertyValue $selectedProject "name" $selectedProjectId)
     $summary.project_id = $selectedProjectId
     $summary.project_name = $selectedProjectName
-    Write-Host "Project: $selectedProjectName [$selectedProjectId]"
-    Write-Host "Eligible PDFs: $($eligible.Count)"
+    Write-Host ("Project: {0} [{1}]" -f $selectedProjectName, $selectedProjectId)
+    Write-Host ("Eligible PDFs: {0}" -f $eligible.Count)
 
     $primary = $eligible[0]
-    $primaryId = [string]$primary.source_id
-    $primaryTitle = if (Has-Property $primary "source_title") { [string]$primary.source_title } else { $primaryId }
-    $summary.primary_source = [ordered]@{
-        id = $primaryId
-        title = $primaryTitle
-    }
+    $primaryId = [string](Get-PropertyValue $primary "source_id" "")
+    $primaryTitle = [string](Get-PropertyValue $primary "source_title" $primaryId)
+    $summary.primary_source = [ordered]@{ id = $primaryId; title = $primaryTitle }
 
     Write-Step "Index primary PDF using the same enable action as the UI icon"
     $queued = Invoke-SourceAction -Pid $selectedProjectId -Sid $primaryId -Action "enable"
     Write-Host ($queued | ConvertTo-Json -Depth 8)
     $ready = Wait-SourceReady -Pid $selectedProjectId -Sid $primaryId -Label "Primary enable"
-    $summary.primary_source["first_ready_points"] = [int]$ready.point_count
+    $summary.primary_source["first_ready_points"] = [int](Get-PropertyValue $ready "point_count" 0)
     $summary.checks["primary_enable"] = "passed"
 
     Write-Step "Disable primary PDF"
     $disabled = Invoke-SourceAction -Pid $selectedProjectId -Sid $primaryId -Action "disable"
-    if ([string]$disabled.status -ne "disabled" -or [bool]$disabled.enabled) {
-        throw "Disable verification failed: $($disabled | ConvertTo-Json -Depth 8 -Compress)"
+    if ([string](Get-PropertyValue $disabled "status" "") -ne "disabled" -or [bool](Get-PropertyValue $disabled "enabled" $true)) {
+        throw ("Disable verification failed: {0}" -f ($disabled | ConvertTo-Json -Depth 8 -Compress))
     }
     $summary.checks["primary_disable"] = "passed"
 
     Write-Step "Re-enable primary PDF"
     $null = Invoke-SourceAction -Pid $selectedProjectId -Sid $primaryId -Action "enable"
     $readyAgain = Wait-SourceReady -Pid $selectedProjectId -Sid $primaryId -Label "Primary re-enable"
-    $summary.primary_source["reenabled_points"] = [int]$readyAgain.point_count
+    $summary.primary_source["reenabled_points"] = [int](Get-PropertyValue $readyAgain "point_count" 0)
     $summary.checks["primary_reenable"] = "passed"
 
     Write-Step "Clean rebuild primary PDF"
     $rebuild = Invoke-SourceAction -Pid $selectedProjectId -Sid $primaryId -Action "rebuild"
     Write-Host ($rebuild | ConvertTo-Json -Depth 8)
     $rebuilt = Wait-SourceReady -Pid $selectedProjectId -Sid $primaryId -Label "Primary rebuild"
-    $summary.primary_source["rebuilt_points"] = [int]$rebuilt.point_count
+    $summary.primary_source["rebuilt_points"] = [int](Get-PropertyValue $rebuilt "point_count" 0)
     $summary.checks["primary_rebuild"] = "passed"
 
     if ($eligible.Count -gt 1) {
         Write-Step "Index a second PDF independently"
         $secondary = $eligible[1]
-        $secondaryId = [string]$secondary.source_id
-        $secondaryTitle = if (Has-Property $secondary "source_title") { [string]$secondary.source_title } else { $secondaryId }
-        $summary.secondary_source = [ordered]@{
-            id = $secondaryId
-            title = $secondaryTitle
-        }
+        $secondaryId = [string](Get-PropertyValue $secondary "source_id" "")
+        $secondaryTitle = [string](Get-PropertyValue $secondary "source_title" $secondaryId)
+        $summary.secondary_source = [ordered]@{ id = $secondaryId; title = $secondaryTitle }
 
         $null = Invoke-SourceAction -Pid $selectedProjectId -Sid $secondaryId -Action "enable"
         $secondaryReady = Wait-SourceReady -Pid $selectedProjectId -Sid $secondaryId -Label "Secondary enable"
         $primaryStillReady = Get-SourceStatus -Pid $selectedProjectId -Sid $primaryId
 
-        if ([string]$primaryStillReady.status -ne "ready" -or [int]$primaryStillReady.point_count -lt 1) {
+        if ([string](Get-PropertyValue $primaryStillReady "status" "") -ne "ready" -or
+            [int](Get-PropertyValue $primaryStillReady "point_count" 0) -lt 1) {
             throw "Primary source was disturbed while indexing the secondary source."
         }
 
-        $summary.secondary_source["ready_points"] = [int]$secondaryReady.point_count
+        $summary.secondary_source["ready_points"] = [int](Get-PropertyValue $secondaryReady "point_count" 0)
         $summary.checks["secondary_independence"] = "passed"
     }
     else {
-        Write-Warning "Only one eligible PDF exists in this project. Real second-source verification was skipped; two-source isolation remains covered by the automated test suite."
+        Write-Warning "Only one eligible PDF exists in this project. Real second-source verification was skipped; automated isolation coverage remains active."
         $summary.secondary_source = [ordered]@{
             result = "skipped"
             reason = "Only one eligible PDF was available"
@@ -356,8 +347,8 @@ try {
     $finalHealth = Wait-StackReady
     $summary.checks["final_health"] = [ordered]@{
         result = "passed"
-        qdrant = $finalHealth.qdrant.status
-        colsmol = $finalHealth.colsmol.status
+        qdrant = [string](Get-PropertyValue $finalHealth.qdrant "status" "unknown")
+        colsmol = [string](Get-PropertyValue $finalHealth.colsmol "status" "unknown")
     }
 
     $summary.result = "passed"
@@ -366,7 +357,7 @@ try {
 catch {
     $summary.result = "failed"
     $summary.error = $_.Exception.Message
-    Write-Host "`nPHASE 5 VERIFICATION FAILED: $($summary.error)" -ForegroundColor Red
+    Write-Host ("`nPHASE 5 VERIFICATION FAILED: {0}" -f $summary.error) -ForegroundColor Red
 }
 finally {
     $summary.completed_at = (Get-Date).ToString("o")
@@ -377,16 +368,14 @@ finally {
             Out-File -FilePath $composeLogPath -Encoding utf8
     }
     catch {
-        Write-Warning "Could not collect Docker logs: $($_.Exception.Message)"
+        Write-Warning ("Could not collect Docker logs: {0}" -f $_.Exception.Message)
     }
 
     Stop-Transcript | Out-Null
-    Write-Host "Summary: $summaryPath"
-    Write-Host "Transcript: $transcriptPath"
-    Write-Host "Docker logs: $composeLogPath"
+    Write-Host ("Summary: {0}" -f $summaryPath)
+    Write-Host ("Transcript: {0}" -f $transcriptPath)
+    Write-Host ("Docker logs: {0}" -f $composeLogPath)
 }
 
-if ($summary.result -ne "passed") {
-    exit 1
-}
+if ($summary.result -ne "passed") { exit 1 }
 exit 0
