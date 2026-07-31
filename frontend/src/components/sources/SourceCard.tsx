@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useRef, memo } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { SourceListResponse } from '@/lib/types/api'
 import { Button } from '@/components/ui/button'
 import { patchAllSourceListQueries } from '@/lib/utils/source-query-cache'
@@ -42,11 +43,43 @@ import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import { listActionTriggerClassName } from '@/lib/utils/list-action-trigger'
 import { getArtifactDragData, getActiveArtifactDragPayload, isArtifactDragEvent, clearArtifactDragData } from '@/lib/utils/artifact-drag'
+import { getApiErrorMessage } from '@/lib/utils/error-handler'
 import { ContextMode } from '@/app/(dashboard)/projects/[id]/page'
 import {
   SourceStageActions,
   type StageActionState,
 } from '@/components/sources/SourceStageActions'
+import {
+  drawingExtractionApi,
+  type MultiVectorSourceStatus,
+} from '@/lib/api/drawing-extraction'
+
+const MULTI_VECTOR_QUERY_KEY = (
+  projectId: string,
+  sourceId: string
+) => ['multivector-source', projectId, sourceId] as const
+
+function multiVectorStageState(
+  status: string | null | undefined
+): StageActionState {
+  switch (status) {
+    case 'queued':
+    case 'indexing':
+      return 'running'
+    case 'ready':
+    case 'stale':
+      return 'done'
+    case 'error':
+      return 'failed'
+    case 'disabled':
+    case 'not_indexed':
+    case null:
+    case undefined:
+      return 'idle'
+    default:
+      return 'idle'
+  }
+}
 
 interface SourceCardProps {
   source: SourceListResponse
@@ -541,6 +574,40 @@ function SourceCardImpl({
     .toLowerCase()
     .endsWith('.pdf')
   const showDrawingActions = Boolean(projectId && onRunDrawingExtraction)
+  const multiVectorEligible = drawingEligible
+  const showMultiVectorActions = Boolean(projectId)
+
+  const multiVectorQuery = useQuery({
+    queryKey: MULTI_VECTOR_QUERY_KEY(projectId ?? '', source.id),
+    queryFn: () =>
+      drawingExtractionApi.getMultiVectorSourceStatus(projectId!, source.id),
+    enabled: showMultiVectorActions && multiVectorEligible,
+    refetchInterval: (query) => {
+      const status = (query.state.data as MultiVectorSourceStatus | undefined)?.status
+      return status === 'queued' || status === 'indexing' ? 4000 : false
+    },
+  })
+
+  const rebuildMultiVector = useMutation({
+    mutationFn: () =>
+      drawingExtractionApi.rebuildMultiVectorSource(projectId!, source.id),
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        MULTI_VECTOR_QUERY_KEY(projectId!, source.id),
+        data
+      )
+      toast.success(t('sources.multiVectorQueued'))
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        getApiErrorMessage(error, (key) => t(key), t('sources.multiVectorFailed'))
+      )
+    },
+  })
+
+  const multiVectorState = multiVectorStageState(multiVectorQuery.data?.status)
+  const multiVectorBusy =
+    rebuildMultiVector.isPending || multiVectorState === 'running'
 
   const handleBuildKnowledgeGraph = () => {
     extractKnowledge.mutate({
@@ -556,6 +623,11 @@ function SourceCardImpl({
 
   const handleRunDrawingExtraction = () => {
     onRunDrawingExtraction?.(source.id)
+  }
+
+  const handleRunMultiVector = () => {
+    if (!projectId) return
+    rebuildMultiVector.mutate()
   }
 
   const handleInspectDrawing = () => {
@@ -675,11 +747,16 @@ function SourceCardImpl({
               embedState={embedState}
               kgState={kgState}
               drawingState={showDrawingActions ? drawingState : undefined}
+              multiVectorState={
+                showMultiVectorActions ? multiVectorState : undefined
+              }
               extractReady={extractReady}
               embedBusy={embedSource.isPending}
               kgBusy={extractKnowledge.isPending || extractKnowledge.isBuilding}
               drawingBusy={drawingBusy || drawingState === 'running'}
+              multiVectorBusy={multiVectorBusy}
               drawingEligible={drawingEligible}
+              multiVectorEligible={multiVectorEligible}
               embedFailure={embedFailure}
               kgFailure={kgFailure}
               failureDetailsUnavailable={failureDetailsUnavailable}
@@ -687,6 +764,9 @@ function SourceCardImpl({
               onRunKnowledgeGraph={handleBuildKnowledgeGraph}
               onRunDrawingExtraction={
                 showDrawingActions ? handleRunDrawingExtraction : undefined
+              }
+              onRunMultiVector={
+                showMultiVectorActions ? handleRunMultiVector : undefined
               }
               onInspectDrawing={
                 drawingRunId && onInspectDrawing

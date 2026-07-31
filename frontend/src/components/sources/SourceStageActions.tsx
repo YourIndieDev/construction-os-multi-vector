@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Database, DraftingCompass, Network, RefreshCw, Eye } from 'lucide-react'
+import { Database, DraftingCompass, Layers, Network, RefreshCw, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -22,7 +22,7 @@ import type { SourceProcessingFailure } from '@/lib/types/api'
 
 export type StageActionState = 'idle' | 'running' | 'done' | 'failed'
 
-type StageKind = 'embed' | 'kg' | 'drawing'
+type StageKind = 'embed' | 'kg' | 'drawing' | 'multivector'
 type ConfirmKind =
   | 'embed'
   | 'embed-rerun'
@@ -30,22 +30,28 @@ type ConfirmKind =
   | 'kg-rerun'
   | 'drawing'
   | 'drawing-rerun'
+  | 'multivector'
+  | 'multivector-rerun'
 
 interface SourceStageActionsProps {
   embedState: StageActionState
   kgState: StageActionState
   drawingState?: StageActionState
+  multiVectorState?: StageActionState
   extractReady: boolean
   embedBusy: boolean
   kgBusy: boolean
   drawingBusy?: boolean
+  multiVectorBusy?: boolean
   drawingEligible?: boolean
+  multiVectorEligible?: boolean
   embedFailure?: SourceProcessingFailure
   kgFailure?: SourceProcessingFailure
   failureDetailsUnavailable?: boolean
   onRunEmbeddings: () => void
   onRunKnowledgeGraph: () => void
   onRunDrawingExtraction?: () => void
+  onRunMultiVector?: () => void
   onInspectDrawing?: () => void
 }
 
@@ -57,17 +63,21 @@ export function SourceStageActions({
   embedState,
   kgState,
   drawingState,
+  multiVectorState,
   extractReady,
   embedBusy,
   kgBusy,
   drawingBusy = false,
+  multiVectorBusy = false,
   drawingEligible = true,
+  multiVectorEligible = true,
   embedFailure,
   kgFailure,
   failureDetailsUnavailable = false,
   onRunEmbeddings,
   onRunKnowledgeGraph,
   onRunDrawingExtraction,
+  onRunMultiVector,
   onInspectDrawing,
 }: SourceStageActionsProps) {
   const { t } = useTranslation()
@@ -79,7 +89,9 @@ export function SourceStageActions({
       ? embedBusy
       : confirmKind === 'kg' || confirmKind === 'kg-rerun'
         ? kgBusy
-        : drawingBusy
+        : confirmKind === 'multivector' || confirmKind === 'multivector-rerun'
+          ? multiVectorBusy
+          : drawingBusy
 
   useEffect(() => {
     if (!confirmOpen) {
@@ -111,40 +123,68 @@ export function SourceStageActions({
         onRunDrawingExtraction
       ) {
         onRunDrawingExtraction()
+      } else if (
+        (kind === 'multivector' || kind === 'multivector-rerun') &&
+        onRunMultiVector
+      ) {
+        onRunMultiVector()
       }
     }, 0)
   }
 
-  const confirmCopy =
-    confirmKind === 'embed'
-      ? {
+  const confirmCopy = (() => {
+    switch (confirmKind) {
+      case 'embed':
+        return {
           title: t('sources.embeddingsConfirmTitle'),
           description: t('sources.embeddingsConfirmDesc'),
         }
-      : confirmKind === 'embed-rerun'
-        ? {
-            title: t('sources.embeddingsRerunTitle'),
-            description: t('sources.embeddingsRerunDesc'),
-          }
-        : confirmKind === 'kg'
-          ? {
-              title: t('sources.knowledgeGraphConfirmTitle'),
-              description: t('sources.knowledgeGraphConfirmDesc'),
-            }
-          : confirmKind === 'kg-rerun'
-            ? {
-                title: t('sources.knowledgeGraphRerunTitle'),
-                description: t('sources.knowledgeGraphRerunDesc'),
-              }
-            : confirmKind === 'drawing'
-              ? {
-                  title: t('sources.drawingConfirmTitle'),
-                  description: t('sources.drawingConfirmDesc'),
-                }
-              : {
-                  title: t('sources.drawingRerunTitle'),
-                  description: t('sources.drawingRerunDesc'),
-                }
+      case 'embed-rerun':
+        return {
+          title: t('sources.embeddingsRerunTitle'),
+          description: t('sources.embeddingsRerunDesc'),
+        }
+      case 'kg':
+        return {
+          title: t('sources.knowledgeGraphConfirmTitle'),
+          description: t('sources.knowledgeGraphConfirmDesc'),
+        }
+      case 'kg-rerun':
+        return {
+          title: t('sources.knowledgeGraphRerunTitle'),
+          description: t('sources.knowledgeGraphRerunDesc'),
+        }
+      case 'drawing':
+        return {
+          title: t('sources.drawingConfirmTitle'),
+          description: t('sources.drawingConfirmDesc'),
+        }
+      case 'drawing-rerun':
+        return {
+          title: t('sources.drawingRerunTitle'),
+          description: t('sources.drawingRerunDesc'),
+        }
+      case 'multivector':
+        return {
+          title: t('sources.multiVectorConfirmTitle'),
+          description: t('sources.multiVectorConfirmDesc'),
+        }
+      case 'multivector-rerun':
+        return {
+          title: t('sources.multiVectorRerunTitle'),
+          description: t('sources.multiVectorRerunDesc'),
+        }
+      case null:
+        return {
+          title: t('sources.drawingRerunTitle'),
+          description: t('sources.drawingRerunDesc'),
+        }
+      default: {
+        const _exhaustive: never = confirmKind
+        return _exhaustive
+      }
+    }
+  })()
 
   return (
     <>
@@ -219,6 +259,32 @@ export function SourceStageActions({
           onInspect={onInspectDrawing}
         />
       ) : null}
+      {multiVectorState !== undefined && onRunMultiVector ? (
+        <StageIconButton
+          kind="multivector"
+          state={multiVectorState}
+          disabled={
+            multiVectorState === 'running' ||
+            multiVectorBusy ||
+            (!multiVectorEligible && multiVectorState !== 'done')
+          }
+          doneLabel={t('sources.multiVectorDone')}
+          runningLabel={t('sources.multiVectorRunning')}
+          failedLabel={t('sources.multiVectorFailed')}
+          idleLabel={
+            multiVectorEligible
+              ? t('sources.multiVectorMissing')
+              : t('sources.multiVectorPdfOnly')
+          }
+          rerunLabel={t('sources.multiVectorRerun')}
+          retryLabel={t('sources.retry')}
+          failureDetailsUnavailable={false}
+          unavailableLabel={t('sources.failureDetailsUnavailable')}
+          errorDetailsLabel={t('common.errorDetails')}
+          onStart={() => openConfirm('multivector')}
+          onRerun={() => openConfirm('multivector-rerun')}
+        />
+      ) : null}
       <span
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -250,6 +316,8 @@ function stageIcon(kind: StageKind) {
       return Network
     case 'drawing':
       return DraftingCompass
+    case 'multivector':
+      return Layers
     default: {
       const _exhaustive: never = kind
       return _exhaustive
