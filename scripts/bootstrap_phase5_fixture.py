@@ -1,4 +1,4 @@
-"""Create an idempotent Test project and PDF source for Phase 5 verification."""
+"""Create an idempotent Test project and drawing PDF source for Phase 5 verification."""
 
 from __future__ import annotations
 
@@ -13,14 +13,16 @@ from construction_os.config import UPLOADS_FOLDER
 from construction_os.domain.project import Asset, Project, Source
 
 PROJECT_NAME = "Test"
-SOURCE_TITLE = "Page_001_P001.pdf"
+SOURCE_TITLE = "Page_007_P203.pdf"
 PROJECT_DESCRIPTION = (
     "Deterministic multi-vector verification project using the GEN Korean BBQ "
-    "House P001 plumbing cover and sheet-index drawing."
+    "House P203 plumbing gas floor plan."
 )
 SOURCE_TEXT = (
-    "GEN Korean BBQ House, sheet P001, General Notes, Codes and Sheet Index. "
-    "Project 24-079 at 75-971 Henry Street, Kailua-Kona, Hawaii."
+    "GEN Korean BBQ House, sheet P203, Plumbing Gas Floor Plan. Project 24-079 "
+    "at 75-971 Henry Street, Kailua-Kona, Hawaii. The drawing shows LPG routing, "
+    "gas loads, regulators, meters, solenoid shutoff valves, table grills, kitchen "
+    "equipment, and the existing 1150-gallon propane tank connection."
 )
 
 
@@ -84,7 +86,7 @@ async def _get_or_create_source(project: Project, pdf_path: Path) -> Source:
         if source.asset is None or source.asset.file_path != str(pdf_path):
             source.asset = Asset(file_path=str(pdf_path))
             changed = True
-        if not source.full_text:
+        if source.full_text != SOURCE_TEXT:
             source.full_text = SOURCE_TEXT
             changed = True
         if source.pipeline_stage != "completed":
