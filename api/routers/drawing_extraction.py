@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from api.routers.multivector_search import router as multivector_search_router
 from construction_os.drawing import repository as drawing_repo
 from construction_os.drawing.config import (
     get_drawing_retrieval_mode,
@@ -19,10 +20,12 @@ from construction_os.drawing.multivector_indexer import (
     cancel_source_multivector_index,
     queue_source_multivector_index,
 )
+from construction_os.drawing.multivector_project_status import (
+    list_project_source_statuses,
+)
 from construction_os.drawing.multivector_state import (
     MultiVectorStateError,
     get_source_index_status,
-    list_project_source_statuses,
     set_source_index_enabled,
 )
 from construction_os.drawing.multivector_store import (
@@ -38,6 +41,7 @@ from construction_os.integrations.colsmol import check_colsmol_health
 from construction_os.integrations.qdrant import check_qdrant_health
 
 router = APIRouter(prefix="/drawing-extractions", tags=["drawing-extractions"])
+router.include_router(multivector_search_router)
 
 
 class DrawingExtractRequest(BaseModel):
