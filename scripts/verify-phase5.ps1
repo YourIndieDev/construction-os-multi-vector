@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectId = "",
+    [string]$ProjectName = "Test",
     [string]$ApiBase = "http://localhost:5056",
     [int]$TimeoutMinutes = 180,
     [switch]$SkipBuild,
@@ -49,9 +50,7 @@ function Has-Property {
 
 function Get-PropertyValue {
     param($Object, [string]$Name, $Default = $null)
-    if (Has-Property $Object $Name) {
-        return $Object.$Name
-    }
+    if (Has-Property $Object $Name) { return $Object.$Name }
     return $Default
 }
 
@@ -137,9 +136,7 @@ function Wait-SourceReady {
 
         Write-Host ("{0}: {1}, points={2}, progress={3}/{4}" -f $Label, $status, $points, $processed, $total)
 
-        if ($status -eq "ready" -and $points -gt 0) {
-            return $last
-        }
+        if ($status -eq "ready" -and $points -gt 0) { return $last }
         if ($status -eq "error") {
             $detail = [string](Get-PropertyValue $last "last_error" "Unknown indexing error")
             throw ("{0} failed: {1}" -f $Label, $detail)
@@ -151,25 +148,41 @@ function Wait-SourceReady {
     throw ("{0} timed out after {1} minutes. Last state: {2}" -f $Label, $TimeoutMinutes, $lastJson)
 }
 
-function Get-EligibleSources {
-    param([string]$Pid)
-
-    $p = [uri]::EscapeDataString($Pid)
-    $response = Invoke-Api -Method GET -Path ("/api/drawing-extractions/multivector/projects/{0}/sources" -f $p)
-    $sources = if (Has-Property $response "sources") { @($response.sources) } else { @($response) }
-
-    return @($sources | Where-Object {
-        $hash = [string](Get-PropertyValue $_ "current_file_hash" "")
-        $fileError = [string](Get-PropertyValue $_ "file_error" "")
-        -not [string]::IsNullOrWhiteSpace($hash) -and [string]::IsNullOrWhiteSpace($fileError)
-    })
-}
-
 function Get-Projects {
     $response = Invoke-Api -Method GET -Path "/api/projects?archived=false&order_by=updated%20desc"
     if (Has-Property $response "projects") { return @($response.projects) }
     if (Has-Property $response "results") { return @($response.results) }
     return @($response)
+}
+
+function Get-ProjectPdfSources {
+    param([string]$Pid)
+
+    $p = [uri]::EscapeDataString($Pid)
+    $response = Invoke-Api -Method GET -Path ("/api/sources?project_id={0}&limit=100&offset=0&sort_by=updated&sort_order=desc" -f $p)
+    $sources = if (Has-Property $response "sources") { @($response.sources) } elseif (Has-Property $response "results") { @($response.results) } else { @($response) }
+    $pdfs = @()
+
+    foreach ($source in $sources) {
+        $sourceId = [string](Get-PropertyValue $source "id" "")
+        $title = [string](Get-PropertyValue $source "title" "")
+        $asset = Get-PropertyValue $source "asset"
+        $filePath = if ($null -ne $asset) { [string](Get-PropertyValue $asset "file_path" "") } else { "" }
+        $isPdf = $filePath.EndsWith(".pdf", [System.StringComparison]::OrdinalIgnoreCase) -or
+                 $title.EndsWith(".pdf", [System.StringComparison]::OrdinalIgnoreCase)
+
+        Write-Host ("Source {0}: title='{1}', file='{2}', pdf={3}" -f $sourceId, $title, $filePath, $isPdf)
+
+        if (-not [string]::IsNullOrWhiteSpace($sourceId) -and $isPdf) {
+            $pdfs += [pscustomobject]@{
+                source_id = $sourceId
+                source_title = $title
+                file_path = $filePath
+            }
+        }
+    }
+
+    return @($pdfs)
 }
 
 Start-Transcript -Path $transcriptPath -Force | Out-Null
@@ -236,59 +249,61 @@ try {
         $summary.checks["frontend_tests"] = "skipped"
     }
 
-    Write-Step "Select a project with eligible uploaded PDFs"
+    Write-Step "Select the Test project PDF"
     $projects = @(Get-Projects)
     $selectedProject = $null
-    $eligible = @()
+    $pdfSources = @()
 
     if (-not [string]::IsNullOrWhiteSpace($ProjectId)) {
-        $selectedProject = $projects | Where-Object {
-            [string](Get-PropertyValue $_ "id" "") -eq $ProjectId
-        } | Select-Object -First 1
-
-        if ($null -eq $selectedProject) {
-            throw ("Project '{0}' was not returned by the projects API." -f $ProjectId)
-        }
-        $eligible = @(Get-EligibleSources -Pid $ProjectId)
+        $selectedProject = $projects | Where-Object { [string](Get-PropertyValue $_ "id" "") -eq $ProjectId } | Select-Object -First 1
+        if ($null -eq $selectedProject) { throw ("Project '{0}' was not returned by the projects API." -f $ProjectId) }
+        $pdfSources = @(Get-ProjectPdfSources -Pid $ProjectId)
     }
     else {
-        foreach ($project in $projects) {
-            $candidateProjectId = [string](Get-PropertyValue $project "id" "")
-            if ([string]::IsNullOrWhiteSpace($candidateProjectId)) { continue }
+        $orderedProjects = @($projects | Sort-Object @{ Expression = { if ([string](Get-PropertyValue $_ "name" "") -eq $ProjectName) { 0 } else { 1 } } }, @{ Expression = { [string](Get-PropertyValue $_ "name" "") } })
+        foreach ($project in $orderedProjects) {
+            $candidateId = [string](Get-PropertyValue $project "id" "")
+            $candidateName = [string](Get-PropertyValue $project "name" $candidateId)
+            if ([string]::IsNullOrWhiteSpace($candidateId)) { continue }
 
+            Write-Host ("Checking project '{0}' [{1}]" -f $candidateName, $candidateId)
             try {
-                $candidate = @(Get-EligibleSources -Pid $candidateProjectId)
-                Write-Host ("Checked project {0}: {1} eligible PDF source(s)" -f $candidateProjectId, $candidate.Count)
-                if ($candidate.Count -gt 0) {
+                $candidatePdfs = @(Get-ProjectPdfSources -Pid $candidateId)
+                if ($candidatePdfs.Count -gt 0) {
                     $selectedProject = $project
-                    $eligible = $candidate
+                    $pdfSources = $candidatePdfs
                     break
                 }
             }
             catch {
-                Write-Warning ("Skipping project {0}: {1}" -f $candidateProjectId, $_.Exception.Message)
+                Write-Warning ("Could not inspect project '{0}': {1}" -f $candidateName, $_.Exception.Message)
             }
         }
     }
 
-    if ($null -eq $selectedProject -or $eligible.Count -eq 0) {
-        throw "No project containing an accessible uploaded PDF was found."
+    if ($null -eq $selectedProject -or $pdfSources.Count -eq 0) {
+        throw ("No PDF source was returned for project '{0}'. Review the source lines printed above." -f $ProjectName)
     }
 
     $selectedProjectId = [string](Get-PropertyValue $selectedProject "id" "")
     $selectedProjectName = [string](Get-PropertyValue $selectedProject "name" $selectedProjectId)
     $summary.project_id = $selectedProjectId
     $summary.project_name = $selectedProjectName
-    Write-Host ("Project: {0} [{1}]" -f $selectedProjectName, $selectedProjectId)
-    Write-Host ("Eligible PDFs: {0}" -f $eligible.Count)
+    Write-Host ("Selected project: {0} [{1}]" -f $selectedProjectName, $selectedProjectId)
+    Write-Host ("PDF sources: {0}" -f $pdfSources.Count)
 
-    $primary = $eligible[0]
-    $primaryId = [string](Get-PropertyValue $primary "source_id" "")
-    $primaryTitle = [string](Get-PropertyValue $primary "source_title" $primaryId)
-    $summary.primary_source = [ordered]@{ id = $primaryId; title = $primaryTitle }
+    $primary = $pdfSources[0]
+    $primaryId = [string]$primary.source_id
+    $primaryTitle = [string]$primary.source_title
+    $summary.primary_source = [ordered]@{ id = $primaryId; title = $primaryTitle; file_path = [string]$primary.file_path }
 
     Write-Step "Index primary PDF using the same enable action as the UI icon"
-    $queued = Invoke-SourceAction -Pid $selectedProjectId -Sid $primaryId -Action "enable"
+    try {
+        $queued = Invoke-SourceAction -Pid $selectedProjectId -Sid $primaryId -Action "enable"
+    }
+    catch {
+        throw ("The PDF was found, but indexing could not start. Source '{0}', stored file '{1}'. API error: {2}" -f $primaryTitle, $primary.file_path, $_.Exception.Message)
+    }
     Write-Host ($queued | ConvertTo-Json -Depth 8)
     $ready = Wait-SourceReady -Pid $selectedProjectId -Sid $primaryId -Label "Primary enable"
     $summary.primary_source["first_ready_points"] = [int](Get-PropertyValue $ready "point_count" 0)
@@ -314,19 +329,18 @@ try {
     $summary.primary_source["rebuilt_points"] = [int](Get-PropertyValue $rebuilt "point_count" 0)
     $summary.checks["primary_rebuild"] = "passed"
 
-    if ($eligible.Count -gt 1) {
+    if ($pdfSources.Count -gt 1) {
         Write-Step "Index a second PDF independently"
-        $secondary = $eligible[1]
-        $secondaryId = [string](Get-PropertyValue $secondary "source_id" "")
-        $secondaryTitle = [string](Get-PropertyValue $secondary "source_title" $secondaryId)
-        $summary.secondary_source = [ordered]@{ id = $secondaryId; title = $secondaryTitle }
+        $secondary = $pdfSources[1]
+        $secondaryId = [string]$secondary.source_id
+        $secondaryTitle = [string]$secondary.source_title
+        $summary.secondary_source = [ordered]@{ id = $secondaryId; title = $secondaryTitle; file_path = [string]$secondary.file_path }
 
         $null = Invoke-SourceAction -Pid $selectedProjectId -Sid $secondaryId -Action "enable"
         $secondaryReady = Wait-SourceReady -Pid $selectedProjectId -Sid $secondaryId -Label "Secondary enable"
         $primaryStillReady = Get-SourceStatus -Pid $selectedProjectId -Sid $primaryId
 
-        if ([string](Get-PropertyValue $primaryStillReady "status" "") -ne "ready" -or
-            [int](Get-PropertyValue $primaryStillReady "point_count" 0) -lt 1) {
+        if ([string](Get-PropertyValue $primaryStillReady "status" "") -ne "ready" -or [int](Get-PropertyValue $primaryStillReady "point_count" 0) -lt 1) {
             throw "Primary source was disturbed while indexing the secondary source."
         }
 
@@ -334,10 +348,10 @@ try {
         $summary.checks["secondary_independence"] = "passed"
     }
     else {
-        Write-Warning "Only one eligible PDF exists in this project. Real second-source verification was skipped; automated isolation coverage remains active."
+        Write-Warning "Only one PDF exists in Test. Real second-source verification was skipped; automated two-source isolation coverage remains active."
         $summary.secondary_source = [ordered]@{
             result = "skipped"
-            reason = "Only one eligible PDF was available"
+            reason = "Only one PDF was available in Test"
             automated_coverage = "tests/test_multivector_indexer_isolation.py"
         }
         $summary.checks["secondary_independence"] = "covered_by_automated_test"
@@ -364,8 +378,7 @@ finally {
     $summary | ConvertTo-Json -Depth 12 | Out-File -FilePath $summaryPath -Encoding utf8
 
     try {
-        & docker compose logs --no-color --tail=400 construction_os colsmol qdrant |
-            Out-File -FilePath $composeLogPath -Encoding utf8
+        & docker compose logs --no-color --tail=400 construction_os colsmol qdrant | Out-File -FilePath $composeLogPath -Encoding utf8
     }
     catch {
         Write-Warning ("Could not collect Docker logs: {0}" -f $_.Exception.Message)
