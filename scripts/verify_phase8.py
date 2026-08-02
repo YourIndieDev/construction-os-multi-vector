@@ -134,6 +134,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+    events_output = Path(args.events_output)
+    events_output.parent.mkdir(parents=True, exist_ok=True)
+    events_output.write_text(json.dumps(events, indent=2), encoding="utf-8")
+    result["report_path"] = str(output)
+    result["events_path"] = str(events_output)
     return result
 
 
@@ -153,6 +159,10 @@ def main() -> int:
     parser.add_argument(
         "--output",
         default="data/phase8-verification.json",
+    )
+    parser.add_argument(
+        "--events-output",
+        default="data/phase8-events.json",
     )
     args = parser.parse_args()
 
