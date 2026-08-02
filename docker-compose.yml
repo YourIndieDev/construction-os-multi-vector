@@ -61,6 +61,11 @@ services:
       - QDRANT_MULTIVECTOR_VECTOR_SIZE=${QDRANT_MULTIVECTOR_VECTOR_SIZE:-128}
       - COLSMOL_URL=http://colsmol:8000
       - COLSMOL_TIMEOUT_SECONDS=${COLSMOL_TIMEOUT_SECONDS:-10}
+      # Browser must call API through this UI origin so Axios and relative
+      # /api fetches share the same SurrealDB (not a host :5055 process).
+      - API_URL=http://127.0.0.1:${MULTIVECTOR_WEB_PORT:-8503}
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:${MULTIVECTOR_WEB_PORT:-8503}
+      - INTERNAL_API_URL=http://127.0.0.1:5055
     volumes:
       - multivector_construction_os_data:/app/data
     depends_on:

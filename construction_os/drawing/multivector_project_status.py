@@ -20,9 +20,15 @@ async def list_project_source_statuses(
     """Return visual-index state for every source currently linked to a project."""
     try:
         project = await Project.get(project_id)
-        sources = await project.get_sources()
     except Exception as exc:
         raise MultiVectorStateError(f"Project not found: {project_id}") from exc
+
+    try:
+        sources = await project.get_sources()
+    except Exception as exc:
+        raise MultiVectorStateError(
+            f"Unable to list sources for project {project_id}: {exc}"
+        ) from exc
 
     statuses: list[dict[str, Any]] = []
     store = QdrantMultiVectorStore() if include_qdrant_count else None

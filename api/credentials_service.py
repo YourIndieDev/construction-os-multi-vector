@@ -10,7 +10,7 @@ All functions raise ValueError for business errors (router converts to HTTPExcep
 import ipaddress
 import os
 import socket
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -438,12 +438,31 @@ async def test_credential(credential_id: str) -> dict:
             return {"provider": provider, "success": False, "message": f"Error: {truncated}"}
 
 
+def _discovered_model(
+    name: str,
+    provider: str,
+    *,
+    description: Optional[str] = None,
+    model_type: Optional[str] = None,
+) -> dict:
+    """Build a discovery result with best-effort type classification."""
+    resolved_type = model_type or classify_model_type(name, provider)
+    result: dict = {
+        "name": name,
+        "provider": provider,
+        "model_type": resolved_type,
+    }
+    if description:
+        result["description"] = description
+    return result
+
+
 async def discover_with_config(provider: str, config: dict) -> List[dict]:
     """
     Discover models using explicit config instead of env vars.
 
-    Returns model names only — no type classification.
-    The user chooses the model type when registering.
+    Each result includes a best-effort ``model_type`` from name/capability
+    classification. The UI may still override type when registering.
     """
     api_key = config.get("api_key")
     base_url = config.get("base_url")
@@ -486,7 +505,7 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
         if not api_key and provider != "ollama":
             return []
         return [
-            {"name": m, "provider": provider}
+            _discovered_model(m, provider)
             for m in STATIC_MODELS[provider]
         ]
 
@@ -510,11 +529,7 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
                 response.raise_for_status()
                 data = response.json()
                 return [
-                    {
-                        "name": m.get("name", ""),
-                        "provider": "ollama",
-                        "model_type": classify_model_type(m.get("name", ""), "ollama"),
-                    }
+                    _discovered_model(m.get("name", ""), "ollama")
                     for m in data.get("models", [])
                     if m.get("name")
                 ]
@@ -538,7 +553,7 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
                 response.raise_for_status()
                 data = response.json()
                 return [
-                    {"name": m.get("id", ""), "provider": "openai_compatible"}
+                    _discovered_model(m.get("id", ""), "openai_compatible")
                     for m in data.get("data", [])
                     if m.get("id")
                 ]
@@ -559,7 +574,7 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
                 response.raise_for_status()
                 data = response.json()
                 return [
-                    {"name": m.get("id", ""), "provider": "azure"}
+                    _discovered_model(m.get("id", ""), "azure")
                     for m in data.get("data", [])
                     if m.get("id")
                 ]
@@ -577,7 +592,7 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
             "gemini-1.5-flash",
             "text-embedding-005",
         ]
-        return [{"name": m, "provider": "vertex"} for m in VERTEX_MODELS]
+        return [_discovered_model(m, "vertex") for m in VERTEX_MODELS]
 
     if provider == "google":
         try:
@@ -590,15 +605,25 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
                 )
                 response.raise_for_status()
                 data = response.json()
-                return [
-                    {
-                        "name": model.get("name", "").replace("models/", ""),
-                        "provider": "google",
-                        "description": model.get("displayName"),
-                    }
-                    for model in data.get("models", [])
-                    if model.get("name")
-                ]
+                discovered: List[dict] = []
+                for model in data.get("models", []):
+                    raw_name = model.get("name", "")
+                    if not raw_name:
+                        continue
+                    model_name = raw_name.replace("models/", "")
+                    model_type = classify_model_type(model_name, "google")
+                    methods = model.get("supportedGenerationMethods", [])
+                    if "embedContent" in methods:
+                        model_type = "embedding"
+                    discovered.append(
+                        _discovered_model(
+                            model_name,
+                            "google",
+                            description=model.get("displayName"),
+                            model_type=model_type,
+                        )
+                    )
+                return discovered
         except Exception as e:
             logger.warning(f"Failed to discover Google models: {e}")
             return []
@@ -621,11 +646,11 @@ async def discover_with_config(provider: str, config: dict) -> List[dict]:
             data = response.json()
 
             return [
-                {
-                    "name": m.get("id", ""),
-                    "provider": provider,
-                    "description": m.get("name"),
-                }
+                _discovered_model(
+                    m.get("id", ""),
+                    provider,
+                    description=m.get("name"),
+                )
                 for m in data.get("data", [])
                 if m.get("id")
             ]
@@ -662,7 +687,17 @@ async def register_models(credential_id: str, models_data: list) -> dict:
     existing = 0
 
     for model_data in models_data:
-        key = (model_data.name.lower(), model_data.model_type.lower())
+        provider = (model_data.provider or cred.provider).lower()
+        requested_type = model_data.model_type.lower()
+        classified = classify_model_type(model_data.name, provider)
+        # Prefer name-based classification when the UI sent a blanket "language"
+        # type (common when discovering mixed modality catalogs).
+        resolved_type = (
+            classified
+            if requested_type == "language" and classified != "language"
+            else requested_type
+        )
+        key = (model_data.name.lower(), resolved_type)
         if key in existing_keys:
             existing += 1
             continue
@@ -670,11 +705,12 @@ async def register_models(credential_id: str, models_data: list) -> dict:
         new_model = Model(
             name=model_data.name,
             provider=model_data.provider or cred.provider,
-            type=model_data.model_type,
+            type=resolved_type,
             credential=cred.id,
         )
         await new_model.save()
         created += 1
+        existing_keys.add(key)
 
     return {"created": created, "existing": existing}
 

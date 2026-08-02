@@ -1,11 +1,29 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ProjectMultiVectorDialog } from './ProjectMultiVectorDialog'
 
+const listMultiVectorProjectSources = vi.fn()
+const enableMultiVectorSource = vi.fn()
+const disableMultiVectorSource = vi.fn()
+const rebuildMultiVectorSource = vi.fn()
+
+vi.mock('@/lib/api/drawing-extraction', () => ({
+  drawingExtractionApi: {
+    listMultiVectorProjectSources: (...args: unknown[]) =>
+      listMultiVectorProjectSources(...args),
+    enableMultiVectorSource: (...args: unknown[]) => enableMultiVectorSource(...args),
+    disableMultiVectorSource: (...args: unknown[]) => disableMultiVectorSource(...args),
+    rebuildMultiVectorSource: (...args: unknown[]) => rebuildMultiVectorSource(...args),
+  },
+}))
+
 describe('ProjectMultiVectorDialog', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
+  beforeEach(() => {
+    listMultiVectorProjectSources.mockReset()
+    enableMultiVectorSource.mockReset()
+    disableMultiVectorSource.mockReset()
+    rebuildMultiVectorSource.mockReset()
   })
 
   it('loads project sources and starts visual indexing for selected PDFs', async () => {
@@ -24,34 +42,17 @@ describe('ProjectMultiVectorDialog', () => {
         },
       ],
     }
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => sourceList,
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          project_id: 'project:test',
-          source_id: 'source:plans',
-          source_title: 'Architectural Plans',
-          enabled: true,
-          status: 'queued',
-          stale: false,
-          point_count: 0,
-          current_file_hash: 'abc123',
-        }),
-      })
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          ...sourceList,
-          sources: [{ ...sourceList.sources[0], enabled: true, status: 'indexing' }],
-        }),
-      })
-
-    vi.stubGlobal('fetch', fetchMock)
+    listMultiVectorProjectSources.mockResolvedValue(sourceList)
+    enableMultiVectorSource.mockResolvedValue({
+      project_id: 'project:test',
+      source_id: 'source:plans',
+      source_title: 'Architectural Plans',
+      enabled: true,
+      status: 'queued',
+      stale: false,
+      point_count: 0,
+      current_file_hash: 'abc123',
+    })
 
     render(
       <ProjectMultiVectorDialog
@@ -67,36 +68,27 @@ describe('ProjectMultiVectorDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enable and index selected' }))
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/drawing-extractions/multivector/projects/project%3Atest/sources/source%3Aplans/enable',
-        { method: 'POST' }
-      )
+      expect(enableMultiVectorSource).toHaveBeenCalledWith('project:test', 'source:plans')
     })
   })
 
   it('disables selection for sources without uploaded PDF files', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
+    listMultiVectorProjectSources.mockResolvedValue({
+      project_id: 'project:test',
+      sources: [
+        {
           project_id: 'project:test',
-          sources: [
-            {
-              project_id: 'project:test',
-              source_id: 'source:text',
-              source_title: 'Text source',
-              enabled: false,
-              status: 'disabled',
-              stale: false,
-              point_count: 0,
-              current_file_hash: null,
-              file_error: 'Source has no uploaded file',
-            },
-          ],
-        }),
-      })
-    )
+          source_id: 'source:text',
+          source_title: 'Text source',
+          enabled: false,
+          status: 'disabled',
+          stale: false,
+          point_count: 0,
+          current_file_hash: null,
+          file_error: 'Source has no uploaded file',
+        },
+      ],
+    })
 
     render(
       <ProjectMultiVectorDialog

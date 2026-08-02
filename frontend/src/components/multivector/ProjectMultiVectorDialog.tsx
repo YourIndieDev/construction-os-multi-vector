@@ -15,24 +15,12 @@ import {
   DialogTitle,
   dialogBodyClassName,
 } from '@/components/ui/dialog'
+import {
+  drawingExtractionApi,
+  type MultiVectorSourceStatus,
+} from '@/lib/api/drawing-extraction'
+import { formatApiError } from '@/lib/utils/error-handler'
 import { cn } from '@/lib/utils'
-
-const API_ROOT = '/api/drawing-extractions/multivector'
-
-type MultiVectorSourceStatus = {
-  project_id: string
-  source_id: string
-  source_title?: string | null
-  enabled: boolean
-  status: string
-  stale: boolean
-  point_count: number
-  current_file_hash?: string | null
-  indexed_file_hash?: string | null
-  last_error?: string | null
-  file_error?: string | null
-  qdrant_error?: string | null
-}
 
 type SourceAction = 'enable' | 'disable' | 'rebuild'
 
@@ -43,26 +31,26 @@ interface ProjectMultiVectorDialogProps {
   projectName?: string
 }
 
-function projectSourcesEndpoint(projectId: string) {
-  return `${API_ROOT}/projects/${encodeURIComponent(projectId)}/sources`
-}
-
-function sourceActionEndpoint(projectId: string, sourceId: string, action: SourceAction) {
-  return `${projectSourcesEndpoint(projectId)}/${encodeURIComponent(sourceId)}/${action}`
-}
-
 function readableStatus(status: string) {
   return status.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-async function responseError(response: Response) {
-  try {
-    const body = await response.json()
-    return typeof body.detail === 'string'
-      ? body.detail
-      : JSON.stringify(body.detail ?? body)
-  } catch {
-    return `${response.status} ${response.statusText}`
+async function runSourceAction(
+  projectId: string,
+  sourceId: string,
+  action: SourceAction
+): Promise<MultiVectorSourceStatus> {
+  switch (action) {
+    case 'enable':
+      return drawingExtractionApi.enableMultiVectorSource(projectId, sourceId)
+    case 'disable':
+      return drawingExtractionApi.disableMultiVectorSource(projectId, sourceId)
+    case 'rebuild':
+      return drawingExtractionApi.rebuildMultiVectorSource(projectId, sourceId)
+    default: {
+      const _exhaustive: never = action
+      return _exhaustive
+    }
   }
 }
 
@@ -83,16 +71,10 @@ export function ProjectMultiVectorDialog({
     if (!silent) setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch(projectSourcesEndpoint(projectId), {
-        cache: 'no-store',
-      })
-      if (!response.ok) {
-        throw new Error(await responseError(response))
-      }
-      const body = (await response.json()) as { sources?: MultiVectorSourceStatus[] }
+      const body = await drawingExtractionApi.listMultiVectorProjectSources(projectId)
       setSources(body.sources ?? [])
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load project sources.')
+      setError(formatApiError(loadError) || 'Unable to load project sources.')
     } finally {
       if (!silent) setIsLoading(false)
     }
@@ -146,13 +128,13 @@ export function ProjectMultiVectorDialog({
     try {
       const updated = await Promise.all(
         sourceIds.map(async (sourceId) => {
-          const response = await fetch(sourceActionEndpoint(projectId, sourceId, action), {
-            method: 'POST',
-          })
-          if (!response.ok) {
-            throw new Error(`${sourceId}: ${await responseError(response)}`)
+          try {
+            return await runSourceAction(projectId, sourceId, action)
+          } catch (actionError) {
+            throw new Error(
+              `${sourceId}: ${formatApiError(actionError) || 'Action failed.'}`
+            )
           }
-          return (await response.json()) as MultiVectorSourceStatus
         })
       )
 
