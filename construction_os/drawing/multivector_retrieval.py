@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Awaitable, Callable, Optional, Sequence
 
 from construction_os.drawing.multivector_project_status import (
@@ -11,10 +13,12 @@ from construction_os.drawing.multivector_search import (
     MultiVectorSearchHit,
     QdrantMultiVectorSearch,
 )
+from construction_os.domain.project import Source
 from construction_os.integrations.colsmol_query import embed_colsmol_query
 from construction_os.retrieval.types import EvidenceItem
 
 QueryEmbedder = Callable[[str], Awaitable[dict]]
+SourceNameResolver = Callable[[str], Awaitable[Optional[str]]]
 
 
 def _page_key(hit: MultiVectorSearchHit) -> tuple[str, int | str]:
@@ -45,14 +49,85 @@ def deduplicate_overlapping_hits(
     return selected
 
 
+async def _resolve_source_filename(source_id: str) -> Optional[str]:
+    """Resolve the original source name without failing visual retrieval."""
+    try:
+        source = await Source.get(source_id)
+    except Exception:
+        return None
+    if not source:
+        return None
+
+    title = str(source.title or "").strip()
+    if title:
+        return title
+
+    file_path = source.asset.file_path if source.asset else None
+    if file_path:
+        return Path(file_path).name
+    return None
+
+
+def _has_document_filename(payload: dict) -> bool:
+    filename = str(payload.get("source_filename") or "").strip().lower()
+    return filename.endswith(".pdf")
+
+
+async def _enrich_source_filenames(
+    hits: Sequence[MultiVectorSearchHit],
+    *,
+    resolver: SourceNameResolver,
+) -> list[MultiVectorSearchHit]:
+    """Replace legacy crop filenames with the original uploaded source title."""
+    unresolved_ids = sorted(
+        {
+            str(hit.payload.get("source_id") or "").strip()
+            for hit in hits
+            if not _has_document_filename(hit.payload)
+            and str(hit.payload.get("source_id") or "").strip()
+        }
+    )
+    if not unresolved_ids:
+        return list(hits)
+
+    resolved_values = await asyncio.gather(
+        *(resolver(source_id) for source_id in unresolved_ids),
+        return_exceptions=True,
+    )
+    resolved_names = {
+        source_id: value
+        for source_id, value in zip(unresolved_ids, resolved_values)
+        if isinstance(value, str) and value.strip()
+    }
+
+    enriched: list[MultiVectorSearchHit] = []
+    for hit in hits:
+        payload = dict(hit.payload)
+        source_id = str(payload.get("source_id") or "").strip()
+        resolved_name = resolved_names.get(source_id)
+        if resolved_name:
+            legacy_name = str(payload.get("source_filename") or "").strip()
+            if legacy_name and legacy_name != resolved_name:
+                payload.setdefault("visual_asset_filename", legacy_name)
+            payload["source_filename"] = resolved_name
+        enriched.append(
+            MultiVectorSearchHit(
+                point_id=hit.point_id,
+                score=hit.score,
+                payload=payload,
+            )
+        )
+    return enriched
+
+
 def _evidence_title(payload: dict) -> str:
     sheet_number = str(payload.get("sheet_number") or "").strip()
     sheet_title = str(payload.get("sheet_title") or "").strip()
     if sheet_number or sheet_title:
-        return " — ".join(part for part in (sheet_number, sheet_title) if part)
+        return " - ".join(part for part in (sheet_number, sheet_title) if part)
     page_number = int(payload.get("page_number") or int(payload.get("page_index") or 0) + 1)
     source_name = str(payload.get("source_filename") or "Drawing").strip()
-    return f"{source_name} — Page {page_number}"
+    return f"{source_name} - Page {page_number}"
 
 
 def visual_hit_to_evidence(hit: MultiVectorSearchHit) -> EvidenceItem:
@@ -97,6 +172,7 @@ async def retrieve_multivector_evidence(
     candidate_multiplier: int = 4,
     searcher: Optional[QdrantMultiVectorSearch] = None,
     query_embedder: QueryEmbedder = embed_colsmol_query,
+    source_name_resolver: SourceNameResolver = _resolve_source_filename,
 ) -> list[EvidenceItem]:
     """Embed a question, query ready sources with MaxSim, and deduplicate pages."""
     text = query.strip()
@@ -124,4 +200,8 @@ async def retrieve_multivector_evidence(
         score_threshold=minimum_score,
     )
     deduplicated = deduplicate_overlapping_hits(hits, limit=limit)
-    return [visual_hit_to_evidence(hit) for hit in deduplicated]
+    enriched = await _enrich_source_filenames(
+        deduplicated,
+        resolver=source_name_resolver,
+    )
+    return [visual_hit_to_evidence(hit) for hit in enriched]
