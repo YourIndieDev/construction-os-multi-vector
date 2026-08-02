@@ -105,7 +105,7 @@ def test_visual_chat_forwards_existing_and_drawing_state(monkeypatch):
         drawing_result_limit=2,
     )
 
-    result = asyncio.run(api.execute_visual_project_chat(body))
+    result = asyncio.run(api.execute_visual_project_chat(body, x_guest_key=None))
 
     assert result == {"streaming": True}
     props = observed["run_input"]["forwarded_props"]
