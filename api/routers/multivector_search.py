@@ -201,6 +201,15 @@ async def execute_visual_project_chat(
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        context_config = body.context_config
+        if context_config is None and body.drawing_source_ids:
+            context_config = {
+                "sources": {
+                    source_id: "full content"
+                    for source_id in body.drawing_source_ids
+                }
+            }
+
         await session.save()
         run_input = ag_ui_agents.build_run_input(
             thread_id=full_session_id,
@@ -208,7 +217,7 @@ async def execute_visual_project_chat(
             message_id=body.edit_message_id,
             forwarded_props={
                 "context": body.context,
-                "context_config": body.context_config,
+                "context_config": context_config,
                 "project_id": project_id,
                 "project": project_meta,
                 "model_override": model_override,
