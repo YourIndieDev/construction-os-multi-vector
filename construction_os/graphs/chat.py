@@ -175,7 +175,6 @@ def _emit_drawing_debug(debug: Optional[dict], config: RunnableConfig) -> None:
     try:
         dispatch_custom_event("drawing_retrieval_debug", debug, config=config)
     except Exception:
-        # Debug transport must never affect the answer path.
         pass
 
 
@@ -547,7 +546,13 @@ def generating(state: ThreadState, config: RunnableConfig) -> dict:
             },
             config,
         )
-        result: dict = {"messages": cleaned_message}
+        result: dict = {
+            "messages": cleaned_message,
+            "drawing_retrieval_mode": "existing",
+            "drawing_source_ids": [],
+            "drawing_result_limit": 3,
+            "visual_evidence": None,
+        }
         pending = state.get("a2ui_pending")
         if pending:
             existing = dict(state.get("a2ui_by_message_id") or {})
