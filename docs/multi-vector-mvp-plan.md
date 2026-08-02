@@ -99,7 +99,8 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Record separate rankings, timings, thresholds, and score spaces without score fusion.
 - [x] Keep the Phase 6 multi-vector search endpoint unchanged for backward compatibility.
 - [x] Add unit and API contract tests for default behavior, comparison, fallback, timing, source forwarding, and independent thresholds.
-- [ ] Run the targeted Phase 7 tests and real comparison request on the target laptop.
+- [x] Verify a real comparison request on the target laptop: existing retrieval completed with zero matches, while multi-vector returned one P203 crop with no backend errors.
+- [x] Repair legacy crop-name metadata at retrieval time so existing Qdrant points report the original PDF source without requiring re-indexing.
 
 ## Phase 8: Chat integration
 
