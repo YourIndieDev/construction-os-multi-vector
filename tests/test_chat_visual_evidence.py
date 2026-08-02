@@ -35,7 +35,7 @@ def _result(
 def _make_page(root: Path, page_index: int, crop_name: str) -> tuple[Path, Path]:
     page_dir = root / "multivector" / "source_plans" / "run" / f"page_{page_index:04d}"
     crop_dir = page_dir / "crops"
-    crop_dir.mkdir(parents=True)
+    crop_dir.mkdir(parents=True, exist_ok=True)
     page = page_dir / "page.png"
     crop = crop_dir / crop_name
     page.write_bytes(b"page-image")
