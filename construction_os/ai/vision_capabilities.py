@@ -59,40 +59,50 @@ def _matches(model_name: str, patterns: tuple[re.Pattern[str], ...]) -> bool:
     return any(pattern.search(model_name) for pattern in patterns)
 
 
+def _unsupported(
+    *,
+    model_id: Optional[str],
+    reason: str,
+    model_name: Optional[str] = None,
+    provider: Optional[str] = None,
+) -> dict[str, Any]:
+    return {
+        "model_id": model_id,
+        "model_name": model_name,
+        "provider": provider,
+        "supported": False,
+        "reason": reason,
+    }
+
+
 async def resolve_chat_vision_capability(
     model_id: Optional[str],
 ) -> dict[str, Any]:
     """Resolve whether the selected chat model can safely accept image blocks.
 
     The registry currently has no explicit vision flag, so unknown models are treated
-    as unsupported instead of risking a failed chat request. Operators can override
-    individual registry IDs through CONSTRUCTION_OS_VISION_MODEL_IDS or
-    CONSTRUCTION_OS_TEXT_ONLY_MODEL_IDS.
+    as unsupported instead of risking a failed chat request. Capability lookup is
+    deliberately fail-open for normal chat: registry errors disable image attachment
+    but never block the text response.
     """
     resolved_id = str(model_id or "").strip() or None
     if resolved_id is None:
-        defaults = await model_manager.get_defaults()
-        resolved_id = defaults.default_chat_model
+        try:
+            defaults = await model_manager.get_defaults()
+            resolved_id = defaults.default_chat_model
+        except Exception:
+            return _unsupported(model_id=None, reason="default_model_lookup_failed")
 
     if not resolved_id:
-        return {
-            "model_id": None,
-            "model_name": None,
-            "provider": None,
-            "supported": False,
-            "reason": "chat_model_unconfigured",
-        }
+        return _unsupported(model_id=None, reason="chat_model_unconfigured")
 
     explicit_vision = _csv_env("CONSTRUCTION_OS_VISION_MODEL_IDS")
     explicit_text_only = _csv_env("CONSTRUCTION_OS_TEXT_ONLY_MODEL_IDS")
     if resolved_id in explicit_text_only:
-        return {
-            "model_id": resolved_id,
-            "model_name": None,
-            "provider": None,
-            "supported": False,
-            "reason": "explicit_text_only_override",
-        }
+        return _unsupported(
+            model_id=resolved_id,
+            reason="explicit_text_only_override",
+        )
     if resolved_id in explicit_vision:
         return {
             "model_id": resolved_id,
@@ -102,34 +112,35 @@ async def resolve_chat_vision_capability(
             "reason": "explicit_vision_override",
         }
 
-    model = await Model.get(resolved_id)
+    try:
+        model = await Model.get(resolved_id)
+    except Exception:
+        return _unsupported(
+            model_id=resolved_id,
+            reason="model_record_lookup_failed",
+        )
     if not model:
-        return {
-            "model_id": resolved_id,
-            "model_name": None,
-            "provider": None,
-            "supported": False,
-            "reason": "model_record_not_found",
-        }
+        return _unsupported(
+            model_id=resolved_id,
+            reason="model_record_not_found",
+        )
 
     model_name = str(model.name or "").strip()
     provider = _normalized_provider(model.provider)
     if model.type != "language":
-        return {
-            "model_id": resolved_id,
-            "model_name": model_name,
-            "provider": provider,
-            "supported": False,
-            "reason": "model_is_not_language",
-        }
+        return _unsupported(
+            model_id=resolved_id,
+            model_name=model_name,
+            provider=provider,
+            reason="model_is_not_language",
+        )
     if _matches(model_name, _TEXT_ONLY_PATTERNS):
-        return {
-            "model_id": resolved_id,
-            "model_name": model_name,
-            "provider": provider,
-            "supported": False,
-            "reason": "known_text_only_model",
-        }
+        return _unsupported(
+            model_id=resolved_id,
+            model_name=model_name,
+            provider=provider,
+            reason="known_text_only_model",
+        )
 
     patterns = _VISION_MODEL_PATTERNS.get(provider, ())
     supported = bool(patterns and _matches(model_name, patterns))
