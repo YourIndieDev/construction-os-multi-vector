@@ -104,11 +104,17 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 
 ## Phase 8: Chat integration
 
-- [ ] Attach retrieved visual evidence to the current chat agent.
-- [ ] Limit and deduplicate image inputs.
-- [ ] Include source and sheet metadata.
-- [ ] Preserve existing tools, skills, and prompts.
-- [ ] Add tests.
+- [x] Add an experimental streaming project-chat endpoint with `existing`, `multi_vector`, and `compare` request modes.
+- [x] Attach Qdrant-retrieved crops and their parent page images to the current project chat agent as request-scoped multimodal inputs.
+- [x] Limit retrieval to three unique source/page results and six deduplicated images.
+- [x] Confine image paths to drawing-extraction storage, reject invalid files, cap encoded bytes, and downscale oversized images.
+- [x] Include source title, sheet number, page, crop bounds, rank, and visual score in guarded text context.
+- [x] Preserve the existing system prompt, skills, collections, native tools, MCP tools, artifact templates, HTML templates, A2UI, session security, and normal chat fallback.
+- [x] Add conservative vision-model capability checks and text-only retry for multimodal compatibility failures.
+- [x] Emit sanitized `drawing_retrieval_debug` metadata and retain it per assistant message for Phase 9.
+- [x] Keep retrieval settings one-turn only so ordinary later chat requests return to `existing` behavior.
+- [x] Add unit, graph, API, source-isolation, payload, model-capability, and tool-loop regression tests.
+- [ ] Run the targeted Phase 8 test suite and real P203 visual chat request on the target laptop.
 
 ## Phase 9: Chat UI controls
 
