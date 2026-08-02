@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal, Optional, Sequence
 
+import fitz
 from langchain_core.messages import BaseMessage
 from loguru import logger
 
@@ -20,6 +21,7 @@ ModeRetriever = Callable[..., Awaitable[dict[str, Any]]]
 MAX_VISUAL_RESULTS = 3
 MAX_VISUAL_IMAGES = 6
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_IMAGE_EDGE = 2048
 _ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 _SHEET_RE = re.compile(r"(?:^|[_\s-])([A-Z]{1,3}\d{2,4})(?:[_\s.-]|$)", re.IGNORECASE)
 
@@ -42,17 +44,24 @@ def _normalize_ids(values: Optional[Sequence[str]]) -> list[str]:
     return sorted({str(value).strip() for value in (values or []) if str(value).strip()})
 
 
-def _effective_source_ids(
+def _source_scope(
     requested_source_ids: Optional[Sequence[str]],
     allowed_source_ids: Optional[Sequence[str]],
-) -> list[str]:
+) -> tuple[list[str], Optional[str]]:
+    """Return effective sources and a fail-closed reason when a pool is supplied."""
     requested = set(_normalize_ids(requested_source_ids))
+    if allowed_source_ids is None:
+        return sorted(requested), None
+
     allowed = set(_normalize_ids(allowed_source_ids))
-    if requested and allowed:
-        return sorted(requested & allowed)
+    if not allowed:
+        return [], "no_selected_drawing_sources"
     if requested:
-        return sorted(requested)
-    return sorted(allowed)
+        effective = requested & allowed
+        if not effective:
+            return [], "requested_sources_not_in_chat_pool"
+        return sorted(effective), None
+    return sorted(allowed), None
 
 
 def _safe_image_path(value: Any) -> Optional[Path]:
@@ -178,7 +187,10 @@ async def build_visual_chat_evidence(
     retriever: ModeRetriever = retrieve_with_modes,
 ) -> dict[str, Any]:
     """Retrieve and prepare safe crop/page pairs without blocking normal chat."""
-    effective_sources = _effective_source_ids(requested_source_ids, allowed_source_ids)
+    effective_sources, scope_error = _source_scope(
+        requested_source_ids,
+        allowed_source_ids,
+    )
     bounded_limit = max(1, min(int(limit), MAX_VISUAL_RESULTS))
     if mode == "existing":
         return _empty_result(
@@ -186,6 +198,13 @@ async def build_visual_chat_evidence(
             project_id=project_id,
             source_ids=effective_sources,
             fallback_reason=None,
+        )
+    if scope_error:
+        return _empty_result(
+            mode=mode,
+            project_id=project_id,
+            source_ids=effective_sources,
+            fallback_reason=scope_error,
         )
 
     try:
@@ -301,11 +320,45 @@ async def build_visual_chat_evidence(
     }
 
 
+def _bounded_image_bytes(
+    path: Path,
+    *,
+    max_image_bytes: int,
+    max_image_edge: int,
+) -> Optional[tuple[bytes, str, int, int]]:
+    """Read an image and shrink it when needed, returning bytes and dimensions."""
+    try:
+        raw = path.read_bytes()
+        mime = mimetypes.guess_type(path.name)[0] or "image/png"
+        width = 0
+        height = 0
+        try:
+            pixmap = fitz.Pixmap(str(path))
+            width, height = pixmap.width, pixmap.height
+            shrunk = False
+            while max(pixmap.width, pixmap.height) > max_image_edge:
+                pixmap.shrink(1)
+                shrunk = True
+            if shrunk or len(raw) > max_image_bytes:
+                raw = pixmap.tobytes("png")
+                mime = "image/png"
+                width, height = pixmap.width, pixmap.height
+        except Exception:
+            # Existing rendered assets are validated by file type and size below.
+            pass
+        if not raw or len(raw) > max_image_bytes:
+            return None
+        return raw, mime, width, height
+    except OSError:
+        return None
+
+
 def encode_visual_image_blocks(
     images: Sequence[dict[str, Any]],
     *,
     max_images: int = MAX_VISUAL_IMAGES,
     max_image_bytes: int = MAX_IMAGE_BYTES,
+    max_image_edge: int = MAX_IMAGE_EDGE,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Encode validated local images for a remote multimodal chat request."""
     blocks: list[dict[str, Any]] = []
@@ -317,15 +370,16 @@ def encode_visual_image_blocks(
         path = _safe_image_path(image.get("path"))
         if path is None or str(path) in seen:
             continue
-        try:
-            size = path.stat().st_size
-            if size <= 0 or size > max_image_bytes:
-                continue
-            mime = mimetypes.guess_type(path.name)[0] or "image/png"
-            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-        except OSError:
+        bounded = _bounded_image_bytes(
+            path,
+            max_image_bytes=max_image_bytes,
+            max_image_edge=max_image_edge,
+        )
+        if bounded is None:
             continue
+        raw, mime, width, height = bounded
         seen.add(str(path))
+        encoded = base64.b64encode(raw).decode("ascii")
         blocks.append(
             {
                 "type": "image_url",
@@ -340,7 +394,9 @@ def encode_visual_image_blocks(
                 "sheet_number": image.get("sheet_number"),
                 "page_number": image.get("page_number"),
                 "evidence_rank": image.get("evidence_rank"),
-                "byte_count": size,
+                "byte_count": len(raw),
+                "image_width": width or None,
+                "image_height": height or None,
             }
         )
     return blocks, attached
