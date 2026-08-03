@@ -102,4 +102,27 @@ describe('DrawingEvidencePanel', () => {
       'noopener,noreferrer'
     )
   })
+
+  it('shows a compact method badge for ordinary existing retrieval', () => {
+    render(
+      <DrawingEvidencePanel
+        debug={{
+          requested_mode: 'existing',
+          mode_used: 'existing',
+          project_id: 'project:test',
+          requested_source_ids: [],
+          existing: null,
+          multi_vector: null,
+          vision: null,
+          evidence: [],
+          fallback_reason: null,
+        }}
+      />
+    )
+
+    expect(screen.getByTestId('drawing-retrieval-method')).toHaveTextContent(
+      'Existing retrieval'
+    )
+    expect(screen.queryByText('Retrieved evidence')).not.toBeInTheDocument()
+  })
 })
