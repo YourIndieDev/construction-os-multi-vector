@@ -25,7 +25,12 @@ const MODES: Array<{ value: DrawingRetrievalMode; label: string }> = [
 ]
 
 function isReady(source: MultiVectorSourceStatus): boolean {
-  return source.enabled && source.status === 'ready' && !source.stale && source.point_count > 0
+  return (
+    source.enabled &&
+    source.status === 'ready' &&
+    !source.stale &&
+    source.point_count > 0
+  )
 }
 
 function isBusy(source: MultiVectorSourceStatus): boolean {
@@ -52,7 +57,9 @@ export function ChatDrawingRetrievalControls({
   disabled = false,
 }: ChatDrawingRetrievalControlsProps) {
   const request = useDrawingRetrievalStore((state) => state.request)
-  const setActiveProject = useDrawingRetrievalStore((state) => state.setActiveProject)
+  const setActiveProject = useDrawingRetrievalStore(
+    (state) => state.setActiveProject
+  )
   const setMode = useDrawingRetrievalStore((state) => state.setMode)
   const setSelectedSourceIds = useDrawingRetrievalStore(
     (state) => state.setSelectedSourceIds
@@ -65,15 +72,23 @@ export function ChatDrawingRetrievalControls({
   const [actingSourceId, setActingSourceId] = useState<string | null>(null)
   const initializedSelectionRef = useRef(false)
 
-  const includedSet = useMemo(() => new Set(includedSourceIds), [includedSourceIds])
+  const includedSet = useMemo(
+    () => new Set(includedSourceIds),
+    [includedSourceIds]
+  )
 
   const loadSources = useCallback(async () => {
     try {
-      const response = await drawingExtractionApi.listMultiVectorProjectSources(projectId)
+      const response =
+        await drawingExtractionApi.listMultiVectorProjectSources(projectId)
       setSources(response.sources)
       setLoadError(null)
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Unable to load visual index status')
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to load visual index status'
+      )
     } finally {
       setLoading(false)
     }
@@ -82,6 +97,7 @@ export function ChatDrawingRetrievalControls({
   useEffect(() => {
     setActiveProject(projectId)
     initializedSelectionRef.current = false
+    setLoading(true)
     void loadSources()
     return () => clearProject(projectId)
   }, [clearProject, loadSources, projectId, setActiveProject])
@@ -93,13 +109,24 @@ export function ChatDrawingRetrievalControls({
   }, [loadSources, sources])
 
   const selectableReadyIds = useMemo(
-    () => sources.filter((source) => isReady(source) && includedSet.has(source.source_id)).map((source) => source.source_id),
+    () =>
+      sources
+        .filter(
+          (source) => isReady(source) && includedSet.has(source.source_id)
+        )
+        .map((source) => source.source_id),
     [includedSet, sources]
   )
-  const selectableReadySet = useMemo(() => new Set(selectableReadyIds), [selectableReadyIds])
+  const selectableReadySet = useMemo(
+    () => new Set(selectableReadyIds),
+    [selectableReadyIds]
+  )
 
   useEffect(() => {
-    const stillValid = request.selectedSourceIds.filter((id) => selectableReadySet.has(id))
+    if (loading) return
+    const stillValid = request.selectedSourceIds.filter((id) =>
+      selectableReadySet.has(id)
+    )
     if (!initializedSelectionRef.current) {
       initializedSelectionRef.current = true
       setSelectedSourceIds(selectableReadyIds)
@@ -108,9 +135,17 @@ export function ChatDrawingRetrievalControls({
     if (stillValid.length !== request.selectedSourceIds.length) {
       setSelectedSourceIds(stillValid)
     }
-  }, [request.selectedSourceIds, selectableReadyIds, selectableReadySet, setSelectedSourceIds])
+  }, [
+    loading,
+    request.selectedSourceIds,
+    selectableReadyIds,
+    selectableReadySet,
+    setSelectedSourceIds,
+  ])
 
-  const selectedReadyCount = request.selectedSourceIds.filter((id) => selectableReadySet.has(id)).length
+  const selectedReadyCount = request.selectedSourceIds.filter((id) =>
+    selectableReadySet.has(id)
+  ).length
   const visualAvailable = selectedReadyCount > 0
 
   useEffect(() => {
@@ -132,12 +167,27 @@ export function ChatDrawingRetrievalControls({
   const indexSource = async (source: MultiVectorSourceStatus) => {
     setActingSourceId(source.source_id)
     try {
-      if (source.enabled && (source.status === 'ready' || source.stale || source.status === 'error')) {
-        await drawingExtractionApi.rebuildMultiVectorSource(projectId, source.source_id)
+      if (
+        source.enabled &&
+        (source.status === 'ready' || source.stale || source.status === 'error')
+      ) {
+        await drawingExtractionApi.rebuildMultiVectorSource(
+          projectId,
+          source.source_id
+        )
       } else {
-        await drawingExtractionApi.enableMultiVectorSource(projectId, source.source_id)
+        await drawingExtractionApi.enableMultiVectorSource(
+          projectId,
+          source.source_id
+        )
       }
       await loadSources()
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to update the visual index'
+      )
     } finally {
       setActingSourceId(null)
     }
@@ -152,7 +202,10 @@ export function ChatDrawingRetrievalControls({
         <div className="flex items-center gap-1.5">
           <Database className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-xs font-medium">Drawing retrieval</span>
-          <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
+          <Badge
+            variant="outline"
+            className="h-5 px-1.5 text-[10px] uppercase tracking-wide"
+          >
             Experimental
           </Badge>
         </div>
@@ -164,12 +217,18 @@ export function ChatDrawingRetrievalControls({
           onClick={() => void loadSources()}
           disabled={loading || disabled}
         >
-          <RefreshCw className={cn('mr-1 h-3 w-3', loading && 'animate-spin')} />
+          <RefreshCw
+            className={cn('mr-1 h-3 w-3', loading && 'animate-spin')}
+          />
           Refresh
         </Button>
       </div>
 
-      <div className="mt-2 grid grid-cols-3 gap-1" role="group" aria-label="Drawing retrieval method">
+      <div
+        className="mt-2 grid grid-cols-3 gap-1"
+        role="group"
+        aria-label="Drawing retrieval method"
+      >
         {MODES.map((mode) => {
           const unavailable = mode.value !== 'existing' && !visualAvailable
           return (
@@ -181,7 +240,9 @@ export function ChatDrawingRetrievalControls({
               className="h-7 px-2 text-[11px]"
               disabled={disabled || unavailable}
               onClick={() => setMode(mode.value)}
-              title={unavailable ? 'Select a ready indexed source first' : undefined}
+              title={
+                unavailable ? 'Select a ready indexed source first' : undefined
+              }
             >
               {mode.label}
             </Button>
@@ -191,7 +252,8 @@ export function ChatDrawingRetrievalControls({
 
       <details className="mt-2 text-xs">
         <summary className="cursor-pointer select-none text-muted-foreground">
-          Sources · {selectedReadyCount} selected · {selectableReadyIds.length} ready
+          Sources · {selectedReadyCount} selected · {selectableReadyIds.length}{' '}
+          ready
         </summary>
         <div className="mt-2 max-h-52 space-y-1 overflow-y-auto pr-1">
           {loadError ? (
@@ -201,7 +263,9 @@ export function ChatDrawingRetrievalControls({
             </div>
           ) : null}
           {!loading && sources.length === 0 ? (
-            <p className="py-2 text-muted-foreground">No project sources are eligible for visual indexing.</p>
+            <p className="py-2 text-muted-foreground">
+              No project sources are eligible for visual indexing.
+            </p>
           ) : null}
           {sources.map((source) => {
             const ready = isReady(source)
@@ -209,9 +273,13 @@ export function ChatDrawingRetrievalControls({
             const selectable = ready && included
             const selected = request.selectedSourceIds.includes(source.source_id)
             const actionBusy = actingSourceId === source.source_id || isBusy(source)
-            const error = source.last_error || source.file_error || source.qdrant_error
+            const error =
+              source.last_error || source.file_error || source.qdrant_error
             return (
-              <div key={source.source_id} className="rounded-md border bg-background p-2">
+              <div
+                key={source.source_id}
+                className="rounded-md border bg-background p-2"
+              >
                 <div className="flex items-start gap-2">
                   <input
                     type="checkbox"
@@ -222,12 +290,23 @@ export function ChatDrawingRetrievalControls({
                     onChange={() => toggleSource(source.source_id)}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{source.source_title || source.source_id}</p>
-                    <p className={cn('text-[11px] text-muted-foreground', source.status === 'error' && 'text-destructive')}>
+                    <p className="truncate font-medium">
+                      {source.source_title || source.source_id}
+                    </p>
+                    <p
+                      className={cn(
+                        'text-[11px] text-muted-foreground',
+                        source.status === 'error' && 'text-destructive'
+                      )}
+                    >
                       {statusLabel(source)}
                       {!included ? ' · Excluded from chat context' : ''}
                     </p>
-                    {error ? <p className="mt-1 line-clamp-2 text-[11px] text-destructive">{error}</p> : null}
+                    {error ? (
+                      <p className="mt-1 line-clamp-2 text-[11px] text-destructive">
+                        {error}
+                      </p>
+                    ) : null}
                   </div>
                   {canIndex(source) && !ready ? (
                     <Button
@@ -238,7 +317,11 @@ export function ChatDrawingRetrievalControls({
                       disabled={disabled || actionBusy}
                       onClick={() => void indexSource(source)}
                     >
-                      {actionBusy ? 'Working…' : source.enabled ? 'Rebuild' : 'Index'}
+                      {actionBusy
+                        ? 'Working…'
+                        : source.enabled
+                          ? 'Rebuild'
+                          : 'Index'}
                     </Button>
                   ) : null}
                   {ready ? (
