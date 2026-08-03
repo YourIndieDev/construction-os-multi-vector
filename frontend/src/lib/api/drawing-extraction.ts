@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client'
+import type { DrawingRetrievalDebug } from '@/lib/types/drawing-retrieval'
 
 export type DrawingExtractionJob = {
   source_id: string
@@ -127,6 +128,16 @@ export const drawingExtractionApi = {
         params: { path },
         responseType: 'blob',
       }
+    )
+    return data
+  },
+
+  getMultiVectorChatDebug: async (sessionId: string) => {
+    const { data } = await apiClient.get<{
+      session_id: string
+      debug_by_message_id: Record<string, DrawingRetrievalDebug>
+    }>(
+      `/drawing-extractions/multivector/chat/sessions/${encodeURIComponent(sessionId)}/debug`
     )
     return data
   },
