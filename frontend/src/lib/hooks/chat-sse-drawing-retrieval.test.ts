@@ -34,7 +34,7 @@ describe('drawing retrieval AG-UI event binding', () => {
         flushStreamingContent: vi.fn(),
         clearStreamingBuffers: vi.fn(),
         t: ((key: string) => key) as never,
-        createAiMessage: (id, content) => ({ id, type: 'ai', content }),
+        createAiMessage: (id, content) => ({ id, type: 'ai' as const, content }),
       },
       { flushOnTextMessageEnd: true }
     )
