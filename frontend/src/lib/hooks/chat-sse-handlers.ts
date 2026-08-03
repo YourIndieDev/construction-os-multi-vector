@@ -271,6 +271,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
         break
       }
       case 'RUN_FINISHED': {
+        useDrawingRetrievalStore.getState().clearPendingDebug()
         if (clearBuffersOnRunFinished) {
           flushStreamingContent()
           clearStreamingBuffers()
@@ -279,6 +280,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
         break
       }
       case 'RUN_ERROR': {
+        useDrawingRetrievalStore.getState().clearPendingDebug()
         throw new Error(
           typeof event.message === 'string' ? event.message : 'Stream error'
         )
