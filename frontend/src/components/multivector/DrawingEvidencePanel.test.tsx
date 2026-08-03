@@ -80,7 +80,7 @@ describe('DrawingEvidencePanel', () => {
   it('shows both rankings, scores, timing, crop preview, and full-page link', async () => {
     render(<DrawingEvidencePanel debug={debug} />)
 
-    expect(screen.getByText('Retrieved evidence')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Retrieved evidence'))
     expect(screen.getByText('Existing retrieval')).toBeInTheDocument()
     expect(screen.getByText('Multi-vector retrieval')).toBeInTheDocument()
     expect(screen.getByText(/835 ms/)).toBeInTheDocument()
