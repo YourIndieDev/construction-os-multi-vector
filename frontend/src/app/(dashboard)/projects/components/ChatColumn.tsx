@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react'
 import { MessageSquare } from 'lucide-react'
 import { PageError } from '@/components/common/PageError'
 import { useProjectChat } from '@/lib/hooks/useProjectChat'
@@ -16,6 +23,8 @@ import type { Artifact } from '@/lib/types/artifacts'
 import { CollapsibleColumn, createCollapseButton } from '@/components/projects/CollapsibleColumn'
 import { useProjectColumnsStore } from '@/lib/stores/project-columns-store'
 import { useProjectActivityStore } from '@/lib/stores/project-activity-store'
+import { useDrawingRetrievalStore } from '@/lib/stores/drawing-retrieval-store'
+import { drawingExtractionApi } from '@/lib/api/drawing-extraction'
 import { ChatDrawingRetrievalControls } from '@/components/multivector/ChatDrawingRetrievalControls'
 
 interface ChatColumnProps {
@@ -41,6 +50,9 @@ export function ChatColumn({
 }: ChatColumnProps) {
   const { t } = useTranslation()
   const { chatCollapsed, toggleChat } = useProjectColumnsStore()
+  const hydrateMessageDebug = useDrawingRetrievalStore(
+    (state) => state.hydrateMessageDebug
+  )
   const chatUnread = useProjectActivityStore(
     (state) => Boolean(state.chatUnreadByProject[projectId])
   )
@@ -65,6 +77,27 @@ export function ChatColumn({
     activeArtifactId: activeArtifact?.id ?? null,
     onAssistantResponseComplete: handleAssistantResponseComplete,
   })
+
+  useEffect(() => {
+    let active = true
+    if (!chat.currentSessionId) return
+
+    void drawingExtractionApi
+      .getMultiVectorChatDebug(chat.currentSessionId)
+      .then((response) => {
+        if (!active) return
+        Object.entries(response.debug_by_message_id).forEach(([messageId, debug]) => {
+          hydrateMessageDebug(messageId, debug)
+        })
+      })
+      .catch(() => {
+        // Evidence history is optional and must never block normal chat loading.
+      })
+
+    return () => {
+      active = false
+    }
+  }, [chat.currentSessionId, hydrateMessageDebug])
 
   const includedSourceIds = useMemo(
     () =>
