@@ -56,6 +56,7 @@ describe('ChatDrawingRetrievalControls', () => {
       />
     )
 
+    fireEvent.click(await screen.findByText(/Sources ·/))
     const source = await screen.findByLabelText('Use Page_007_P203.pdf')
     await waitFor(() => expect(source).toBeChecked())
 
@@ -95,6 +96,7 @@ describe('ChatDrawingRetrievalControls', () => {
     )
 
     expect(await screen.findByRole('button', { name: 'Multi-vector' })).toBeDisabled()
+    fireEvent.click(screen.getByText(/Sources ·/))
     fireEvent.click(screen.getByRole('button', { name: 'Index' }))
 
     await waitFor(() => {
@@ -115,6 +117,7 @@ describe('ChatDrawingRetrievalControls', () => {
       />
     )
 
+    fireEvent.click(await screen.findByText(/Sources ·/))
     expect(await screen.findByLabelText('Use Page_007_P203.pdf')).toBeDisabled()
     expect(screen.getByText(/Excluded from chat context/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Compare' })).toBeDisabled()
