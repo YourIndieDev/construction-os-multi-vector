@@ -43,7 +43,7 @@ def test_visual_chat_debug_returns_sanitized_message_map(monkeypatch):
     )
     monkeypatch.setattr(multivector_search.chat_graph_module, "graph", FakeGraph())
 
-    result = asyncio.run(multivector_search.get_visual_chat_debug("test"))
+    result = asyncio.run(multivector_search.get_visual_chat_debug("test", None))
 
     assert result["session_id"] == "chat_session:test"
     assert list(result["debug_by_message_id"]) == ["ai:one"]
