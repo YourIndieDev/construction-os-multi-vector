@@ -103,6 +103,30 @@ export function resolveAgUiMessageId(
   return (event.messageId as string) || `${fallbackPrefix}-${Date.now()}`
 }
 
+function bindDrawingDebugToMessage(messageId: string) {
+  const store = useDrawingRetrievalStore.getState()
+  store.bindPendingDebug(messageId)
+  const next = useDrawingRetrievalStore.getState()
+  if (
+    !next.debugByMessageId[messageId] &&
+    next.request.projectId &&
+    next.request.mode === 'existing'
+  ) {
+    next.hydrateMessageDebug(messageId, {
+      message_id: messageId,
+      requested_mode: 'existing',
+      mode_used: 'existing',
+      project_id: next.request.projectId,
+      requested_source_ids: [],
+      existing: null,
+      multi_vector: null,
+      vision: null,
+      evidence: [],
+      fallback_reason: null,
+    })
+  }
+}
+
 export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
   deps: AgUiSseHandlerDeps<TMessage>,
   options: AgUiSseHandlerOptions = {}
@@ -205,7 +229,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
       case 'TEXT_MESSAGE_START': {
         const messageId = resolveAgUiMessageId(event)
         aiMessageIdRef.current = messageId
-        useDrawingRetrievalStore.getState().bindPendingDebug(messageId)
+        bindDrawingDebugToMessage(messageId)
         streamContentRef.current.set(messageId, '')
         setMessages((prev) => [...prev, createAiMessage(messageId, '')])
         if (isA2uiChatEnabled()) {
@@ -222,7 +246,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
         if (!aiMessageIdRef.current) {
           const messageId = resolveAgUiMessageId(event)
           aiMessageIdRef.current = messageId
-          useDrawingRetrievalStore.getState().bindPendingDebug(messageId)
+          bindDrawingDebugToMessage(messageId)
           streamContentRef.current.set(messageId, delta)
           setMessages((prev) => [...prev, createAiMessage(messageId, delta)])
         } else {
