@@ -9,6 +9,7 @@ from typing import Any, List, Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import FileResponse
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from api import ag_ui_agents
@@ -111,6 +112,35 @@ async def get_multivector_evidence_image(
         filename=resolved.name,
         content_disposition_type="inline",
     )
+
+
+@router.get("/chat/sessions/{session_id}/debug")
+async def get_visual_chat_debug(
+    session_id: str,
+    x_guest_key: Optional[str] = Header(None, alias=GUEST_KEY_HEADER),
+) -> dict[str, Any]:
+    """Return sanitized per-message visual retrieval metadata from chat state."""
+    guest_key = _normalize_guest_key(x_guest_key)
+    full_session_id = normalize_chat_session_id(session_id)
+    session = await ChatSession.get(full_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _assert_session_guest_access(session, guest_key)
+
+    thread_state = await chat_graph_module.graph.aget_state(
+        config=RunnableConfig(configurable={"thread_id": full_session_id})
+    )
+    values = thread_state.values if thread_state and thread_state.values else {}
+    raw_debug = values.get("drawing_retrieval_by_message_id") or {}
+    debug_by_message_id = {
+        str(message_id): debug
+        for message_id, debug in raw_debug.items()
+        if isinstance(message_id, str) and isinstance(debug, dict)
+    } if isinstance(raw_debug, dict) else {}
+    return {
+        "session_id": full_session_id,
+        "debug_by_message_id": debug_by_message_id,
+    }
 
 
 @router.post("/search")
