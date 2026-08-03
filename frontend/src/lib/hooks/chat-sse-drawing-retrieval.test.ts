@@ -1,4 +1,3 @@
-import { createRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAgUiChatSseHandler } from '@/lib/hooks/chat-sse-handlers'
 import { useDrawingRetrievalStore } from '@/lib/stores/drawing-retrieval-store'
