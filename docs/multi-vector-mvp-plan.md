@@ -114,15 +114,23 @@ This document tracks the isolated experiment for adding optional multi-vector vi
 - [x] Emit sanitized `drawing_retrieval_debug` metadata and retain it per assistant message for Phase 9.
 - [x] Keep retrieval settings one-turn only so ordinary later chat requests return to `existing` behavior.
 - [x] Add unit, graph, API, source-isolation, payload, model-capability, and tool-loop regression tests.
-- [ ] Run the targeted Phase 8 test suite and real P203 visual chat request on the target laptop.
+- [x] Run the targeted Phase 8 test suite on the target laptop: 47 tests passed.
+- [ ] Verify a real P203 visual chat answer on the target laptop; retrieval and debug events passed, but the configured `gemini-2.5-flash-lite` chat model returned a provider 404 and must be replaced with an available vision model.
 
 ## Phase 9: Chat UI controls
 
-- [ ] Add retrieval mode selector.
-- [ ] Add indexed-source selector and readiness status.
-- [ ] Show retrieved image evidence and comparison results.
-- [ ] Mark controls experimental.
-- [ ] Add frontend tests.
+- [x] Add an experimental `Existing`, `Multi-vector`, and `Compare` retrieval selector to project chat.
+- [x] Add a project-source selector with ready, stale, queued, indexing, disabled, and error states.
+- [x] Disable visual modes when no ready source is selected or when a source is excluded from chat context.
+- [x] Add inline enable/index and rebuild actions with polling progress and error display.
+- [x] Route only visual-mode messages through the isolated Phase 8 endpoint while keeping ordinary chat requests unchanged.
+- [x] Show the retrieval method on every new assistant response, including a compact existing-retrieval marker.
+- [x] In compare mode, show separate existing and multi-vector rankings, top sheets, scores, result counts, errors, and retrieval times.
+- [x] Add a collapsible retrieved-evidence section with authenticated crop previews and links to full drawing pages.
+- [x] Restore per-message visual evidence metadata when a chat session is reopened.
+- [x] Add backend path-security, debug-persistence, ranking-summary, transport, event-binding, controls, and evidence-panel tests.
+- [ ] Run the targeted Phase 9 backend and frontend test suites on the target laptop.
+- [ ] Verify the complete Phase 9 flow in the local browser with P203: choose mode, select source, submit chat question, inspect crop, and open the full page.
 
 ## Phase 10: Evaluation
 
