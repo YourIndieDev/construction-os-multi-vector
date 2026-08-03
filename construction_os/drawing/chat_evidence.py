@@ -117,16 +117,50 @@ def _visual_results(response: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _ranking_result_summary(item: dict[str, Any], index: int) -> dict[str, Any]:
+    source_title = str(
+        item.get("source_filename")
+        or item.get("source_title")
+        or item.get("title")
+        or ""
+    ).strip()
+    similarity = item.get("similarity")
+    score = item.get("score") if similarity is None else similarity
+    return {
+        "id": item.get("id") or item.get("qdrant_point_id"),
+        "source_id": item.get("source_id") or item.get("parent_id"),
+        "parent_id": item.get("parent_id"),
+        "source_title": source_title or None,
+        "title": item.get("title"),
+        "sheet_number": _sheet_number(item, source_title) if source_title else item.get("sheet_number"),
+        "page_number": item.get("page_number"),
+        "score": score,
+        "similarity": similarity,
+        "rank": item.get("rank") or index + 1,
+    }
+
+
 def _ranking_debug(response: dict[str, Any], name: str) -> Optional[dict[str, Any]]:
     ranking = (response.get("rankings") or {}).get(name)
     if not isinstance(ranking, dict):
         return None
+    raw_results = ranking.get("results")
+    results = (
+        [
+            _ranking_result_summary(item, index)
+            for index, item in enumerate(raw_results[:MAX_VISUAL_RESULTS])
+            if isinstance(item, dict)
+        ]
+        if isinstance(raw_results, list)
+        else []
+    )
     return {
         "result_count": int(ranking.get("result_count") or 0),
         "duration_ms": ranking.get("duration_ms"),
         "score_space": ranking.get("score_space"),
         "retrieval_mode_used": ranking.get("retrieval_mode_used"),
         "error": ranking.get("error"),
+        "results": results,
     }
 
 
@@ -344,7 +378,6 @@ def _bounded_image_bytes(
                 mime = "image/png"
                 width, height = pixmap.width, pixmap.height
         except Exception:
-            # Existing rendered assets are validated by file type and size below.
             pass
         if not raw or len(raw) > max_image_bytes:
             return None
