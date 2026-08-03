@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import mimetypes
+from pathlib import Path
 from typing import Any, List, Optional
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from api import ag_ui_agents
@@ -15,6 +18,7 @@ from api.routers.chat import (
     _assert_session_guest_access,
     _normalize_guest_key,
 )
+from construction_os.config import DRAWING_EXTRACTION_FOLDER
 from construction_os.domain.project import ChatSession, Project
 from construction_os.drawing.multivector_retrieval import (
     retrieve_multivector_evidence,
@@ -42,6 +46,7 @@ from construction_os.utils.chat_session import (
 from construction_os.utils.graph_utils import truncate_messages_from_id
 
 router = APIRouter(prefix="/multivector", tags=["drawing-multivector-search"])
+_ALLOWED_EVIDENCE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 class MultiVectorSearchRequest(BaseModel):
@@ -73,6 +78,39 @@ class VisualChatExecuteRequest(ExecuteChatRequest):
     drawing_retrieval_mode: DrawingRetrievalMode = "existing"
     drawing_source_ids: list[str] = Field(default_factory=list)
     drawing_result_limit: int = Field(default=3, ge=1, le=3)
+
+
+def _resolve_evidence_image_path(raw_path: str) -> Path:
+    root = Path(DRAWING_EXTRACTION_FOLDER).expanduser().resolve()
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    try:
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid evidence image path") from exc
+    if not resolved.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Evidence image path is outside drawing data")
+    if resolved.suffix.lower() not in _ALLOWED_EVIDENCE_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Unsupported evidence image type")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Evidence image not found")
+    return resolved
+
+
+@router.get("/evidence/image")
+async def get_multivector_evidence_image(
+    path: str = Query(..., min_length=1),
+) -> FileResponse:
+    """Return one validated crop or parent-page image from drawing extraction data."""
+    resolved = _resolve_evidence_image_path(path)
+    media_type = mimetypes.guess_type(resolved.name)[0] or "image/png"
+    return FileResponse(
+        path=resolved,
+        media_type=media_type,
+        filename=resolved.name,
+        content_disposition_type="inline",
+    )
 
 
 @router.post("/search")
