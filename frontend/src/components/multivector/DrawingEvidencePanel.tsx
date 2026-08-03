@@ -154,6 +154,22 @@ export function DrawingEvidencePanel({ debug }: { debug: DrawingRetrievalDebug }
     return `${retrievalLabel} · ${evidence.length} visual result${evidence.length === 1 ? '' : 's'}`
   }, [debug.fallback_reason, evidence.length, retrievalLabel])
 
+  if (
+    debug.requested_mode === 'existing' &&
+    !debug.existing &&
+    !debug.multi_vector &&
+    !debug.fallback_reason &&
+    evidence.length === 0
+  ) {
+    return (
+      <div className="mt-1.5" data-testid="drawing-retrieval-method">
+        <Badge variant="outline" className="h-5 px-1.5 text-[9px] font-normal">
+          Existing retrieval
+        </Badge>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-2 w-full" data-testid="drawing-evidence-panel">
       <details className="rounded-lg border border-dashed bg-muted/20">
