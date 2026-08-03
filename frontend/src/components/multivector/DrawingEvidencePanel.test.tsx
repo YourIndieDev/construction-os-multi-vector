@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DrawingEvidencePanel } from './DrawingEvidencePanel'
 import type { DrawingRetrievalDebug } from '@/lib/types/drawing-retrieval'
 
@@ -62,11 +62,19 @@ describe('DrawingEvidencePanel', () => {
   beforeEach(() => {
     fetchEvidence.mockReset()
     fetchEvidence.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
-    vi.stubGlobal('URL', {
-      createObjectURL: vi.fn(() => 'blob:phase9-image'),
-      revokeObjectURL: vi.fn(),
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:phase9-image'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
     })
     vi.spyOn(window, 'open').mockImplementation(() => null)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('shows both rankings, scores, timing, crop preview, and full-page link', async () => {
