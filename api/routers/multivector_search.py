@@ -84,19 +84,32 @@ class VisualChatExecuteRequest(ExecuteChatRequest):
 def _resolve_evidence_image_path(raw_path: str) -> Path:
     root = Path(DRAWING_EXTRACTION_FOLDER).expanduser().resolve()
     candidate = Path(raw_path).expanduser()
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    try:
-        resolved = candidate.resolve()
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="Invalid evidence image path") from exc
-    if not resolved.is_relative_to(root):
-        raise HTTPException(status_code=400, detail="Evidence image path is outside drawing data")
-    if resolved.suffix.lower() not in _ALLOWED_EVIDENCE_SUFFIXES:
+    candidates = [candidate] if candidate.is_absolute() else [candidate, root / candidate]
+    saw_inside_root = False
+    saw_unsupported_type = False
+
+    for option in candidates:
+        try:
+            resolved = option.resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if not resolved.is_relative_to(root):
+            continue
+        saw_inside_root = True
+        if resolved.suffix.lower() not in _ALLOWED_EVIDENCE_SUFFIXES:
+            saw_unsupported_type = True
+            continue
+        if resolved.is_file():
+            return resolved
+
+    if saw_unsupported_type:
         raise HTTPException(status_code=400, detail="Unsupported evidence image type")
-    if not resolved.is_file():
+    if saw_inside_root:
         raise HTTPException(status_code=404, detail="Evidence image not found")
-    return resolved
+    raise HTTPException(
+        status_code=400,
+        detail="Evidence image path is outside drawing data",
+    )
 
 
 @router.get("/evidence/image")
@@ -132,11 +145,15 @@ async def get_visual_chat_debug(
     )
     values = thread_state.values if thread_state and thread_state.values else {}
     raw_debug = values.get("drawing_retrieval_by_message_id") or {}
-    debug_by_message_id = {
-        str(message_id): debug
-        for message_id, debug in raw_debug.items()
-        if isinstance(message_id, str) and isinstance(debug, dict)
-    } if isinstance(raw_debug, dict) else {}
+    debug_by_message_id = (
+        {
+            str(message_id): debug
+            for message_id, debug in raw_debug.items()
+            if isinstance(message_id, str) and isinstance(debug, dict)
+        }
+        if isinstance(raw_debug, dict)
+        else {}
+    )
     return {
         "session_id": full_session_id,
         "debug_by_message_id": debug_by_message_id,
