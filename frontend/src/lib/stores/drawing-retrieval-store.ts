@@ -24,6 +24,7 @@ interface DrawingRetrievalState {
   setResultLimit: (limit: number) => void
   captureDebug: (debug: DrawingRetrievalDebug, messageId?: string | null) => void
   bindPendingDebug: (messageId: string) => void
+  clearPendingDebug: () => void
   hydrateMessageDebug: (messageId: string, debug: DrawingRetrievalDebug) => void
   clearProject: (projectId: string) => void
 }
@@ -94,6 +95,8 @@ export const useDrawingRetrievalStore = create<DrawingRetrievalState>((set, get)
       pendingDebug: null,
     }))
   },
+
+  clearPendingDebug: () => set({ pendingDebug: null }),
 
   hydrateMessageDebug: (messageId, debug) =>
     set((state) => ({
