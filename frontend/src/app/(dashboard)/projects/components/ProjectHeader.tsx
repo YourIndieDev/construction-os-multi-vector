@@ -4,10 +4,11 @@ import { useState, type ReactNode } from 'react'
 import { ProjectResponse } from '@/lib/types/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Archive, ArchiveRestore, Link2, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Database, Link2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useUpdateProject } from '@/lib/hooks/use-projects'
 import { ProjectDeleteDialog } from './ProjectDeleteDialog'
+import { ProjectMultiVectorDialog } from '@/components/multivector/ProjectMultiVectorDialog'
 import { InlineEdit } from '@/components/common/InlineEdit'
 import { useTranslation } from '@/lib/hooks/use-translation'
 
@@ -20,6 +21,7 @@ interface ProjectHeaderProps {
 export function ProjectHeader({ project, actions }: ProjectHeaderProps) {
   const { t } = useTranslation()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showMultiVectorDialog, setShowMultiVectorDialog] = useState(false)
   const [copyingLink, setCopyingLink] = useState(false)
 
   const updateProject = useUpdateProject()
@@ -84,6 +86,16 @@ export function ProjectHeader({ project, actions }: ProjectHeaderProps) {
               variant="outline"
               size="sm"
               className="h-7 px-2 text-xs"
+              onClick={() => setShowMultiVectorDialog(true)}
+              title="Manage experimental visual multi-vector embeddings"
+            >
+              <Database className="h-3.5 w-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">Visual index</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
               onClick={() => {
                 void handleCopyShareLink()
               }}
@@ -118,6 +130,13 @@ export function ProjectHeader({ project, actions }: ProjectHeaderProps) {
           </div>
         </div>
       </div>
+
+      <ProjectMultiVectorDialog
+        open={showMultiVectorDialog}
+        onOpenChange={setShowMultiVectorDialog}
+        projectId={project.id}
+        projectName={project.name}
+      />
 
       <ProjectDeleteDialog
         open={showDeleteDialog}

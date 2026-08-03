@@ -14,8 +14,10 @@ import {
   upsertMcpToolCall,
 } from '@/lib/ag-ui/mcp-tool-calls'
 import { parseA2uiEvent } from '@/lib/ag-ui/a2ui'
+import { parseDrawingRetrievalDebugEvent } from '@/lib/ag-ui/drawing-retrieval'
 import { isA2uiChatEnabled } from '@/lib/a2ui/constants'
 import { useA2uiSurfaceStore } from '@/lib/a2ui/surface-store'
+import { useDrawingRetrievalStore } from '@/lib/stores/drawing-retrieval-store'
 import type { ChatToolCall } from '@/lib/types/mcp'
 import { attachHtmlToChatContent } from '@/lib/utils/extract-html-from-chat'
 
@@ -77,25 +79,13 @@ export interface AgUiSseHandlerDeps<TMessage extends ChatStreamMessage> {
 }
 
 export interface AgUiSseHandlerOptions {
-  /** Called for CUSTOM events not handled by shared progress/tool-call logic. */
   onCustomEvent?: (event: AgUiEvent) => void
-  /** Called when a tool-call audit snapshot is received (native or MCP). */
   onToolCallUpdate?: (toolCall: ChatToolCall) => void
-  /** Source chat: apply context indicators from STATE_SNAPSHOT events. */
   onStateSnapshot?: (snapshot: unknown) => void
-  /**
-   * Project chat flushes on TEXT_MESSAGE_END; source chat omits this case.
-   * When false, TEXT_MESSAGE_END is ignored.
-   */
   flushOnTextMessageEnd?: boolean
-  /**
-   * Project chat clears buffers on RUN_FINISHED; source chat only clears status.
-   * When false, RUN_FINISHED only resets stream status.
-   */
   clearBuffersOnRunFinished?: boolean
 }
 
-/** Extract text delta from TEXT_MESSAGE_CONTENT or TEXT_MESSAGE_CHUNK events. */
 export function extractAgUiTextDelta(event: AgUiEvent): string {
   if (typeof event.delta === 'string') {
     return event.delta
@@ -106,7 +96,6 @@ export function extractAgUiTextDelta(event: AgUiEvent): string {
   return ''
 }
 
-/** Resolve AI message id from an AG-UI event or generate a fallback. */
 export function resolveAgUiMessageId(
   event: AgUiEvent,
   fallbackPrefix = 'ai'
@@ -114,11 +103,30 @@ export function resolveAgUiMessageId(
   return (event.messageId as string) || `${fallbackPrefix}-${Date.now()}`
 }
 
-/**
- * Factory for the shared AG-UI SSE switch used by project and source chat.
- * Callers pass hook-specific options for TEXT_MESSAGE_END / RUN_FINISHED behavior
- * and optional CUSTOM extensions (e.g. STATE_SNAPSHOT for source chat).
- */
+function bindDrawingDebugToMessage(messageId: string) {
+  const store = useDrawingRetrievalStore.getState()
+  store.bindPendingDebug(messageId)
+  const next = useDrawingRetrievalStore.getState()
+  if (
+    !next.debugByMessageId[messageId] &&
+    next.request.projectId &&
+    next.request.mode === 'existing'
+  ) {
+    next.hydrateMessageDebug(messageId, {
+      message_id: messageId,
+      requested_mode: 'existing',
+      mode_used: 'existing',
+      project_id: next.request.projectId,
+      requested_source_ids: [],
+      existing: null,
+      multi_vector: null,
+      vision: null,
+      evidence: [],
+      fallback_reason: null,
+    })
+  }
+}
+
 export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
   deps: AgUiSseHandlerDeps<TMessage>,
   options: AgUiSseHandlerOptions = {}
@@ -208,12 +216,20 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
             })
           }
         }
+        const drawingDebug = parseDrawingRetrievalDebugEvent(event)
+        if (drawingDebug) {
+          useDrawingRetrievalStore.getState().captureDebug(
+            drawingDebug,
+            drawingDebug.message_id || event.messageId || aiMessageIdRef.current
+          )
+        }
         onCustomEvent?.(event)
         break
       }
       case 'TEXT_MESSAGE_START': {
         const messageId = resolveAgUiMessageId(event)
         aiMessageIdRef.current = messageId
+        bindDrawingDebugToMessage(messageId)
         streamContentRef.current.set(messageId, '')
         setMessages((prev) => [...prev, createAiMessage(messageId, '')])
         if (isA2uiChatEnabled()) {
@@ -230,6 +246,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
         if (!aiMessageIdRef.current) {
           const messageId = resolveAgUiMessageId(event)
           aiMessageIdRef.current = messageId
+          bindDrawingDebugToMessage(messageId)
           streamContentRef.current.set(messageId, delta)
           setMessages((prev) => [...prev, createAiMessage(messageId, delta)])
         } else {
@@ -254,6 +271,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
         break
       }
       case 'RUN_FINISHED': {
+        useDrawingRetrievalStore.getState().clearPendingDebug()
         if (clearBuffersOnRunFinished) {
           flushStreamingContent()
           clearStreamingBuffers()
@@ -262,6 +280,7 @@ export function createAgUiChatSseHandler<TMessage extends ChatStreamMessage>(
         break
       }
       case 'RUN_ERROR': {
+        useDrawingRetrievalStore.getState().clearPendingDebug()
         throw new Error(
           typeof event.message === 'string' ? event.message : 'Stream error'
         )

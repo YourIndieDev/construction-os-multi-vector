@@ -11,6 +11,8 @@ import { MessageActions } from '@/components/source/MessageActions'
 import { MarkdownRenderer } from '@/components/common/MarkdownRenderer'
 import { TemplateHtmlPreview } from '@/components/templates/TemplateHtmlPreview'
 import { A2uiMessageSurface } from '@/components/a2ui/A2uiMessageSurface'
+import { DrawingEvidencePanel } from '@/components/multivector/DrawingEvidencePanel'
+import { useDrawingRetrievalStore } from '@/lib/stores/drawing-retrieval-store'
 import {
   convertReferencesToCompactMarkdown,
   createCompactReferenceLinkComponent,
@@ -70,6 +72,9 @@ function ChatMessageRowImpl({
 }: ChatMessageRowProps) {
   const { t } = useTranslation()
   const { data: htmlTemplate } = useHtmlTemplate(htmlTemplateId ?? undefined)
+  const drawingDebug = useDrawingRetrievalStore((state) =>
+    message.type === 'ai' ? state.debugByMessageId[message.id] : undefined
+  )
   const a2uiEnabled = isA2uiChatEnabled()
   const a2uiRevision = useA2uiSurfaceStore((state) => state.revision)
   const a2uiSurfaceCount = useA2uiSurfaceStore((state) =>
@@ -87,8 +92,6 @@ function ChatMessageRowImpl({
     a2uiEnabled &&
     message.type === 'ai' &&
     (a2uiSurfaceCount > 0 || Boolean(a2uiError))
-  // A completed html_template_output event is safe to render immediately, even
-  // while the surrounding text turn is still marked as streaming.
   const extractedRaw =
     message.type === 'ai' ? extractHtmlFromChatContent(message.content) : null
   const extractedHtml =
@@ -105,7 +108,6 @@ function ChatMessageRowImpl({
     !isStreamingThisMessage &&
     !extractedHtml
   const showMessageBody = Boolean(displayTextContent.trim())
-  // Keep revision in render so memoized parents still refresh when surfaces update.
   void a2uiRevision
 
   return (
@@ -158,7 +160,6 @@ function ChatMessageRowImpl({
           </div>
         ) : (
           <>
-            {/* Parallel assistant outputs render in a stable order: text, A2UI, HTML. */}
             {showMessageBody ? (
               message.type === 'human' ? (
                 <div className="rounded-lg bg-primary px-3 py-1.5 text-primary-foreground">
@@ -202,6 +203,10 @@ function ChatMessageRowImpl({
                   {t('chat.templateOutputMissingHint')}
                 </p>
               </div>
+            ) : null}
+
+            {message.type === 'ai' && drawingDebug ? (
+              <DrawingEvidencePanel debug={drawingDebug} />
             ) : null}
 
             {message.type === 'human' && canEdit && (
@@ -272,7 +277,6 @@ function areChatMessageRowPropsEqual(
   }
   if (prev.isEditing !== next.isEditing) return false
   if (prev.isEditing && prev.editDraft !== next.editDraft) return false
-  // A2UI surfaces live in an external store; always re-check AI rows.
   if (prev.message.type === 'ai' || next.message.type === 'ai') {
     return false
   }

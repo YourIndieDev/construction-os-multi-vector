@@ -70,13 +70,21 @@ async def generate_with_tools(
     config: Optional[RunnableConfig] = None,
     strict_mcp_tools: bool = False,
     capability_context: Optional[CapabilityRuntimeContext] = None,
+    provisioning_content: Optional[str] = None,
 ) -> AIMessage:
     """
     Invoke the chat model, binding native and/or MCP tools in one bounded loop.
 
-    `provision_model` should be an async callable matching provision_langchain_model.
+    ``provisioning_content`` lets multimodal callers select a model using only the
+    textual prompt instead of counting large base64 image strings as context tokens.
+    Existing callers retain the original behavior when it is omitted.
     """
-    model = await provision_model(str(payload), model_id, "chat", max_tokens=8192)
+    model = await provision_model(
+        provisioning_content if provisioning_content is not None else str(payload),
+        model_id,
+        "chat",
+        max_tokens=8192,
+    )
     allowlist = await build_allowlist(
         mcp_tool_ids,
         strict_selected_tools=strict_mcp_tools,
@@ -85,7 +93,6 @@ async def generate_with_tools(
     tools: list[BaseTool] = []
 
     if capability_context is not None:
-        # Keep message_id in sync for audit rows
         if message_id and not capability_context.message_id:
             capability_context.message_id = message_id
         tools.extend(
@@ -162,7 +169,6 @@ async def generate_with_tools(
                     )
                 )
                 continue
-            # Pass tool_call_id for native save idempotency when supported
             invoke_args = dict(args)
             result_text = await matched.ainvoke(invoke_args, config=invoke_config)
             working.append(
@@ -171,14 +177,11 @@ async def generate_with_tools(
                     tool_call_id=tc.get("id") or name,
                 )
             )
-            # After native save, stash tool_call_id on context for idempotency
-            # handlers that accept it via kwargs already handled inside bridge.
             if (
                 capability_context is not None
                 and name.startswith("native__save_project_artifact")
                 and tc.get("id")
             ):
-                # Re-run is unnecessary; bridge uses message_id fallback.
                 pass
     else:
         if (
@@ -187,7 +190,10 @@ async def generate_with_tools(
             and (getattr(ai_message, "tool_calls", None) or [])
         ):
             plain = await provision_model(
-                str(working), model_id, "chat", max_tokens=8192
+                provisioning_content if provisioning_content is not None else str(working),
+                model_id,
+                "chat",
+                max_tokens=8192,
             )
             ai_message = plain.invoke(working, config=invoke_config)
 
@@ -225,7 +231,6 @@ async def generate_with_tools(
                 }
             )
         except Exception as error:
-            # A template failure must not discard the normal answer or A2UI output.
             logger.error(
                 "Unable to attach selected HTML template {}: {}",
                 html_template_id,

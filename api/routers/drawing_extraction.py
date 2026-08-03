@@ -5,18 +5,43 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from api.routers.multivector_search import router as multivector_search_router
 from construction_os.drawing import repository as drawing_repo
-from construction_os.drawing.config import get_drawing_retrieval_mode, load_drawing_extraction_config
+from construction_os.drawing.config import (
+    get_drawing_retrieval_mode,
+    load_drawing_extraction_config,
+)
+from construction_os.drawing.multivector_indexer import (
+    cancel_source_multivector_index,
+    queue_source_multivector_index,
+)
+from construction_os.drawing.multivector_project_status import (
+    list_project_source_statuses,
+)
+from construction_os.drawing.multivector_state import (
+    MultiVectorStateError,
+    get_source_index_status,
+    set_source_index_enabled,
+)
+from construction_os.drawing.multivector_store import (
+    MultiVectorCollectionMismatch,
+    MultiVectorStoreError,
+    QdrantMultiVectorStore,
+)
 from construction_os.drawing.pdf_inspect import resolve_source_pdf_path
 from construction_os.drawing.pipeline import queue_drawing_extraction_jobs
 from construction_os.drawing.retrieval import retrieve_drawing_evidence
 from construction_os.domain.project import Source
+from construction_os.integrations.colsmol import check_colsmol_health
+from construction_os.integrations.qdrant import check_qdrant_health
 
 router = APIRouter(prefix="/drawing-extractions", tags=["drawing-extractions"])
+router.include_router(multivector_search_router)
 
 
 class DrawingExtractRequest(BaseModel):
@@ -40,6 +65,18 @@ def _is_pdf_source(source: Source) -> tuple[bool, Optional[str]]:
         return True, None
     except (ValueError, FileNotFoundError) as exc:
         return False, str(exc)
+
+
+def _state_http_error(exc: MultiVectorStateError) -> HTTPException:
+    detail = str(exc)
+    lowered = detail.lower()
+    if "not found" in lowered or "not linked" in lowered:
+        status_code = 404
+    elif "qdrant" in lowered or "colsmol" in lowered:
+        status_code = 503
+    else:
+        status_code = 400
+    return HTTPException(status_code=status_code, detail=detail)
 
 
 @router.post("/extract")
@@ -145,7 +182,7 @@ async def get_page_image(run_id: str, page_id: str, kind: str = "render") -> Fil
 
 @router.post("/search")
 async def search_drawings(body: DrawingSearchRequest) -> Dict[str, Any]:
-    """Isolated drawing search API (Phase 2)."""
+    """Isolated drawing search API."""
     items = await retrieve_drawing_evidence(
         body.query,
         project_id=body.project_id,
@@ -156,6 +193,120 @@ async def search_drawings(body: DrawingSearchRequest) -> Dict[str, Any]:
         "mode": get_drawing_retrieval_mode(),
         "results": [i.to_search_result() for i in items],
     }
+
+
+@router.get("/multivector/health")
+async def multivector_health() -> Dict[str, Any]:
+    """Report optional Qdrant and model readiness without affecting the app."""
+    return {
+        "qdrant": await check_qdrant_health(),
+        "colsmol": await check_colsmol_health(),
+    }
+
+
+@router.post("/multivector/collection/ensure")
+async def ensure_multivector_collection() -> Dict[str, Any]:
+    """Idempotently create or validate the experimental Qdrant collection."""
+    try:
+        result = await QdrantMultiVectorStore().ensure_collection()
+        return {"status": "ready", **result}
+    except MultiVectorCollectionMismatch as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/multivector/projects/{project_id}/sources")
+async def list_multivector_project_sources(project_id: str) -> Dict[str, Any]:
+    """List persisted opt-in and readiness state for all project sources."""
+    try:
+        sources = await list_project_source_statuses(project_id)
+        return {"project_id": project_id, "sources": sources}
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.get("/multivector/projects/{project_id}/sources/{source_id}")
+async def get_multivector_source_status(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Return live source readiness, stale-file state, and Qdrant point count."""
+    try:
+        return await get_source_index_status(project_id, source_id)
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/enable")
+async def enable_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Enable a source and immediately start its first visual index when needed."""
+    try:
+        return await queue_source_multivector_index(
+            project_id,
+            source_id,
+            force=False,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/index")
+async def index_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Enable and start actual ColSmol/Qdrant indexing for one source."""
+    try:
+        return await queue_source_multivector_index(
+            project_id,
+            source_id,
+            force=False,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/disable")
+async def disable_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Cancel active indexing and disable this source for visual retrieval."""
+    try:
+        cancel_source_multivector_index(project_id, source_id)
+        return await set_source_index_enabled(
+            project_id,
+            source_id,
+            enabled=False,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+
+
+@router.post("/multivector/projects/{project_id}/sources/{source_id}/rebuild")
+async def rebuild_multivector_source(
+    project_id: str,
+    source_id: str,
+) -> Dict[str, Any]:
+    """Start a clean source rebuild and replace its Qdrant points."""
+    try:
+        return await queue_source_multivector_index(
+            project_id,
+            source_id,
+            force=True,
+        )
+    except MultiVectorStateError as exc:
+        raise _state_http_error(exc) from exc
+    except (MultiVectorStoreError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/config")

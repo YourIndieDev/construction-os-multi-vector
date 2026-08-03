@@ -269,11 +269,15 @@ async def discover_google_models() -> List[DiscoveredModel]:
                 model_name = model.get("name", "").replace("models/", "")
                 if model_name:
                     model_type = classify_model_type(model_name, "google")
-                    # Check supported generation methods for better classification
+                    # Prefer API capability hints, but never downgrade a name-based
+                    # embedding/TTS/STT classification to language.
                     methods = model.get("supportedGenerationMethods", [])
                     if "embedContent" in methods:
                         model_type = "embedding"
-                    elif "generateContent" in methods:
+                    elif (
+                        "generateContent" in methods
+                        and model_type == "language"
+                    ):
                         model_type = "language"
 
                     models.append(

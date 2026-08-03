@@ -1,47 +1,80 @@
 services:
   surrealdb:
     image: surrealdb/surrealdb:v2
-    # Credentials default to root:root for a zero-config local setup. Before
-    # exposing this instance to a network, set SURREAL_USER / SURREAL_PASSWORD
-    # in a .env file (see .env.example) — they are applied here and to the
-    # construction_os service below, so the two always stay in sync.
     command: start --log info --user ${SURREAL_USER:-root} --pass ${SURREAL_PASSWORD:-root} rocksdb:/mydata/mydatabase.db
-    user: root  # Required for bind mounts on Linux
+    user: root
     ports:
-      # Bound to localhost only: the construction_os service reaches this over
-      # the internal compose network regardless, so the host port is purely
-      # for local debugging (e.g. Surrealist, `surreal sql`). Exposing this
-      # on 0.0.0.0 would let anyone who can reach the host connect with the
-      # default root:root credentials.
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${MULTIVECTOR_SURREAL_PORT:-8001}:8000"
     volumes:
-      - ./surreal_data:/mydata
+      - multivector_surreal_data:/mydata
     environment:
       - SURREAL_EXPERIMENTAL_GRAPHQL=true
-    restart: always
-    pull_policy: always
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.2
+    ports:
+      - "127.0.0.1:${MULTIVECTOR_QDRANT_PORT:-6333}:6333"
+    volumes:
+      - multivector_qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  colsmol:
+    build:
+      context: ./services/colsmol
+    image: construction-os-colsmol:local
+    ports:
+      - "127.0.0.1:${MULTIVECTOR_COLSMOL_PORT:-8091}:8000"
+    environment:
+      - COLSMOL_MODEL=${COLSMOL_MODEL:-vidore/colSmol-256M}
+      - COLSMOL_DTYPE=${COLSMOL_DTYPE:-float16}
+      - COLSMOL_REQUIRE_CUDA=${COLSMOL_REQUIRE_CUDA:-true}
+      - COLSMOL_MAX_IMAGE_EDGE=${COLSMOL_MAX_IMAGE_EDGE:-1536}
+      - COLSMOL_MAX_UPLOAD_BYTES=${COLSMOL_MAX_UPLOAD_BYTES:-26214400}
+      - HF_HOME=/models/huggingface
+      - TRANSFORMERS_CACHE=/models/huggingface
+    volumes:
+      - multivector_huggingface_cache:/models/huggingface
+    gpus: all
+    shm_size: "2gb"
+    restart: unless-stopped
 
   construction_os:
-    image: lfnovo/construction-os:v1-latest
+    build:
+      context: .
+    image: construction-os-multi-vector:local
     ports:
-      - "8502:8502"  # Web UI
-      - "5055:5055"  # REST API
+      - "${MULTIVECTOR_WEB_PORT:-8503}:8502"
+      - "${MULTIVECTOR_API_PORT:-5056}:5055"
     environment:
-      # REQUIRED: Change this to your own secret string
-      # This encrypts your API keys in the database
-      - CONSTRUCTION_OS_ENCRYPTION_KEY=my-super-duper-secret-key-808
-
-      # Database connection. SURREAL_USER / SURREAL_PASSWORD default to root:root
-      # for local use; override them in a .env file before exposing the instance
-      # (the same values configure the surrealdb service above).
+      - CONSTRUCTION_OS_ENCRYPTION_KEY=${CONSTRUCTION_OS_ENCRYPTION_KEY:-change-me-to-a-secret-string}
       - SURREAL_URL=ws://surrealdb:8000/rpc
       - SURREAL_USER=${SURREAL_USER:-root}
       - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
-      - SURREAL_NAMESPACE=construction_os
-      - SURREAL_DATABASE=construction_os
+      - SURREAL_NAMESPACE=${SURREAL_NAMESPACE:-construction_os_multivector}
+      - SURREAL_DATABASE=${SURREAL_DATABASE:-construction_os_multivector}
+      - CONSTRUCTION_OS_MULTIVECTOR_ENABLED=${CONSTRUCTION_OS_MULTIVECTOR_ENABLED:-true}
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_TIMEOUT_SECONDS=${QDRANT_TIMEOUT_SECONDS:-5}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - QDRANT_MULTIVECTOR_COLLECTION=${QDRANT_MULTIVECTOR_COLLECTION:-construction_os_drawing_multivector_v1}
+      - QDRANT_MULTIVECTOR_VECTOR_SIZE=${QDRANT_MULTIVECTOR_VECTOR_SIZE:-128}
+      - COLSMOL_URL=http://colsmol:8000
+      - COLSMOL_TIMEOUT_SECONDS=${COLSMOL_TIMEOUT_SECONDS:-10}
+      # Browser must call API through this UI origin so Axios and relative
+      # /api fetches share the same SurrealDB (not a host :5055 process).
+      - API_URL=http://127.0.0.1:${MULTIVECTOR_WEB_PORT:-8503}
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:${MULTIVECTOR_WEB_PORT:-8503}
+      - INTERNAL_API_URL=http://127.0.0.1:5055
     volumes:
-      - ./construction_os_data:/app/data
+      - multivector_construction_os_data:/app/data
     depends_on:
       - surrealdb
-    restart: always
-    pull_policy: always
+      - qdrant
+    restart: unless-stopped
+
+volumes:
+  multivector_surreal_data:
+  multivector_qdrant_data:
+  multivector_construction_os_data:
+  multivector_huggingface_cache:

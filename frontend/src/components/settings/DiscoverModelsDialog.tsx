@@ -91,10 +91,17 @@ export function DiscoverModelsDialog({
   }, [searchQuery])
 
   const filteredModels = useMemo(() => {
-    if (!searchQuery.trim()) return discoveredModels
+    const hasTypedModels = discoveredModels.some((m) => !!m.model_type)
+    let list = discoveredModels
+    if (hasTypedModels) {
+      list = discoveredModels.filter(
+        (m) => !m.model_type || m.model_type === selectedType
+      )
+    }
+    if (!searchQuery.trim()) return list
     const q = searchQuery.toLowerCase()
-    return discoveredModels.filter(m => m.name.toLowerCase().includes(q))
-  }, [discoveredModels, searchQuery])
+    return list.filter((m) => m.name.toLowerCase().includes(q))
+  }, [discoveredModels, searchQuery, selectedType])
 
   const showCustomOption = useMemo(() => {
     if (!searchQuery.trim()) return false
@@ -108,7 +115,7 @@ export function DiscoverModelsDialog({
       .map(m => ({
         name: m.name,
         provider: m.provider,
-        model_type: selectedType,
+        model_type: (m.model_type as ModelType | undefined) || selectedType,
       }))
     if (customModelSelected && showCustomOption) {
       selected.push({

@@ -7,6 +7,8 @@ sqlite-db/
 surreal-data/
 docker.env
 construction_os_data/
+phase5-reports/
+phase6-reports/
 # Python-specific
 *.py[cod]
 __pycache__/

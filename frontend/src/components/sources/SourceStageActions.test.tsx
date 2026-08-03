@@ -54,6 +54,35 @@ describe('SourceStageActions', () => {
     expect(onCardClick).not.toHaveBeenCalled()
   })
 
+  it('queues multi-vector indexing after confirm', async () => {
+    const onRunMultiVector = vi.fn()
+    render(
+      <SourceStageActions
+        embedState="done"
+        kgState="idle"
+        multiVectorState="idle"
+        extractReady={true}
+        embedBusy={false}
+        kgBusy={false}
+        multiVectorEligible={true}
+        onRunEmbeddings={vi.fn()}
+        onRunKnowledgeGraph={vi.fn()}
+        onRunMultiVector={onRunMultiVector}
+      />
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'sources.multiVectorMissing' })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByText('sources.multiVectorConfirmTitle')
+      ).toBeInTheDocument()
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'common.confirm' }))
+    await waitFor(() => expect(onRunMultiVector).toHaveBeenCalledOnce())
+  })
+
   it('shows an explicit unavailable message for an orphaned failure', () => {
     render(
       <SourceStageActions

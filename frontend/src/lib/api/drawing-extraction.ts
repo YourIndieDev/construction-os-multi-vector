@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client'
+import type { DrawingRetrievalDebug } from '@/lib/types/drawing-retrieval'
 
 export type DrawingExtractionJob = {
   source_id: string
@@ -38,6 +39,37 @@ export type DrawingRunDetail = {
   semantic_records: Array<Record<string, unknown>>
 }
 
+export type MultiVectorIndexStatus =
+  | 'disabled'
+  | 'not_indexed'
+  | 'queued'
+  | 'indexing'
+  | 'ready'
+  | 'stale'
+  | 'error'
+
+export type MultiVectorSourceStatus = {
+  project_id: string
+  source_id: string
+  source_title?: string | null
+  enabled: boolean
+  status: MultiVectorIndexStatus | string
+  persisted_status?: string
+  stale: boolean
+  point_count: number
+  current_file_hash?: string | null
+  indexed_file_hash?: string | null
+  last_error?: string | null
+  file_error?: string | null
+  qdrant_error?: string | null
+  qdrant_available?: boolean | null
+}
+
+function multivectorSourcePath(projectId: string, sourceId: string, action?: string) {
+  const base = `/drawing-extractions/multivector/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(sourceId)}`
+  return action ? `${base}/${action}` : base
+}
+
 export const drawingExtractionApi = {
   extract: async (payload: {
     source_ids: string[]
@@ -74,7 +106,6 @@ export const drawingExtractionApi = {
     return data
   },
 
-  /** Fetch a rendered page image with auth (use as blob URL for <img>). */
   fetchPageImage: async (
     runId: string,
     pageId: string,
@@ -86,6 +117,27 @@ export const drawingExtractionApi = {
         params: { kind },
         responseType: 'blob',
       }
+    )
+    return data
+  },
+
+  fetchMultiVectorEvidenceImage: async (path: string): Promise<Blob> => {
+    const { data } = await apiClient.get<Blob>(
+      '/drawing-extractions/multivector/evidence/image',
+      {
+        params: { path },
+        responseType: 'blob',
+      }
+    )
+    return data
+  },
+
+  getMultiVectorChatDebug: async (sessionId: string) => {
+    const { data } = await apiClient.get<{
+      session_id: string
+      debug_by_message_id: Record<string, DrawingRetrievalDebug>
+    }>(
+      `/drawing-extractions/multivector/chat/sessions/${encodeURIComponent(sessionId)}/debug`
     )
     return data
   },
@@ -122,6 +174,42 @@ export const drawingExtractionApi = {
       mode: string
       results: Array<Record<string, unknown>>
     }>('/drawing-extractions/search', payload)
+    return data
+  },
+
+  getMultiVectorSourceStatus: async (projectId: string, sourceId: string) => {
+    const { data } = await apiClient.get<MultiVectorSourceStatus>(
+      multivectorSourcePath(projectId, sourceId)
+    )
+    return data
+  },
+
+  enableMultiVectorSource: async (projectId: string, sourceId: string) => {
+    const { data } = await apiClient.post<MultiVectorSourceStatus>(
+      multivectorSourcePath(projectId, sourceId, 'enable')
+    )
+    return data
+  },
+
+  disableMultiVectorSource: async (projectId: string, sourceId: string) => {
+    const { data } = await apiClient.post<MultiVectorSourceStatus>(
+      multivectorSourcePath(projectId, sourceId, 'disable')
+    )
+    return data
+  },
+
+  rebuildMultiVectorSource: async (projectId: string, sourceId: string) => {
+    const { data } = await apiClient.post<MultiVectorSourceStatus>(
+      multivectorSourcePath(projectId, sourceId, 'rebuild')
+    )
+    return data
+  },
+
+  listMultiVectorProjectSources: async (projectId: string) => {
+    const { data } = await apiClient.get<{
+      project_id: string
+      sources: MultiVectorSourceStatus[]
+    }>(`/drawing-extractions/multivector/projects/${encodeURIComponent(projectId)}/sources`)
     return data
   },
 }
