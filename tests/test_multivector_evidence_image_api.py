@@ -4,17 +4,24 @@ from fastapi import HTTPException
 from api.routers import multivector_search
 
 
-def test_resolve_evidence_image_accepts_file_inside_drawing_root(monkeypatch, tmp_path):
-    root = tmp_path / "drawing-extractions"
+def test_resolve_evidence_image_accepts_supported_path_forms(monkeypatch, tmp_path):
+    root = tmp_path / "data" / "drawing-extractions"
     image = root / "multivector" / "source_a" / "page_0000" / "page.png"
     image.parent.mkdir(parents=True)
     image.write_bytes(b"png")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(multivector_search, "DRAWING_EXTRACTION_FOLDER", str(root))
 
     assert multivector_search._resolve_evidence_image_path(str(image)) == image.resolve()
     assert (
         multivector_search._resolve_evidence_image_path(
             "multivector/source_a/page_0000/page.png"
+        )
+        == image.resolve()
+    )
+    assert (
+        multivector_search._resolve_evidence_image_path(
+            "data/drawing-extractions/multivector/source_a/page_0000/page.png"
         )
         == image.resolve()
     )
