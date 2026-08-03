@@ -105,7 +105,6 @@ export const drawingExtractionApi = {
     return data
   },
 
-  /** Fetch a rendered page image with auth (use as blob URL for <img>). */
   fetchPageImage: async (
     runId: string,
     pageId: string,
@@ -115,6 +114,17 @@ export const drawingExtractionApi = {
       `/drawing-extractions/runs/${encodeURIComponent(runId)}/pages/${encodeURIComponent(pageId)}/image`,
       {
         params: { kind },
+        responseType: 'blob',
+      }
+    )
+    return data
+  },
+
+  fetchMultiVectorEvidenceImage: async (path: string): Promise<Blob> => {
+    const { data } = await apiClient.get<Blob>(
+      '/drawing-extractions/multivector/evidence/image',
+      {
+        params: { path },
         responseType: 'blob',
       }
     )
