@@ -6,6 +6,26 @@ function mutableRef<T>(current: T) {
   return { current }
 }
 
+function buildHandler() {
+  return createAgUiChatSseHandler(
+    {
+      aiMessageIdRef: mutableRef<string | null>(null),
+      streamContentRef: mutableRef(new Map<string, string>()),
+      streamRafRef: mutableRef<number | null>(null),
+      setMessages: vi.fn(),
+      setStreamStatus: vi.fn(),
+      setActivityLog: vi.fn(),
+      setLiveMcpToolCalls: vi.fn(),
+      appendStreamingDelta: vi.fn(),
+      flushStreamingContent: vi.fn(),
+      clearStreamingBuffers: vi.fn(),
+      t: ((key: string) => key) as never,
+      createAiMessage: (id, content) => ({ id, type: 'ai' as const, content }),
+    },
+    { flushOnTextMessageEnd: true }
+  )
+}
+
 describe('drawing retrieval AG-UI event binding', () => {
   beforeEach(() => {
     useDrawingRetrievalStore.setState({
@@ -21,23 +41,7 @@ describe('drawing retrieval AG-UI event binding', () => {
   })
 
   it('holds early debug and binds it when the assistant message starts', () => {
-    const handler = createAgUiChatSseHandler(
-      {
-        aiMessageIdRef: mutableRef<string | null>(null),
-        streamContentRef: mutableRef(new Map<string, string>()),
-        streamRafRef: mutableRef<number | null>(null),
-        setMessages: vi.fn(),
-        setStreamStatus: vi.fn(),
-        setActivityLog: vi.fn(),
-        setLiveMcpToolCalls: vi.fn(),
-        appendStreamingDelta: vi.fn(),
-        flushStreamingContent: vi.fn(),
-        clearStreamingBuffers: vi.fn(),
-        t: ((key: string) => key) as never,
-        createAiMessage: (id, content) => ({ id, type: 'ai' as const, content }),
-      },
-      { flushOnTextMessageEnd: true }
-    )
+    const handler = buildHandler()
 
     handler({
       type: 'CUSTOM',
@@ -61,5 +65,25 @@ describe('drawing retrieval AG-UI event binding', () => {
       useDrawingRetrievalStore.getState().debugByMessageId['ai:one']?.requested_mode
     ).toBe('compare')
     expect(useDrawingRetrievalStore.getState().pendingDebug).toBeNull()
+  })
+
+  it('creates a compact existing-mode marker for an ordinary project turn', () => {
+    useDrawingRetrievalStore.setState({
+      request: {
+        projectId: 'project:test',
+        mode: 'existing',
+        selectedSourceIds: [],
+        resultLimit: 3,
+      },
+      debugByMessageId: {},
+      pendingDebug: null,
+    })
+
+    buildHandler()({ type: 'TEXT_MESSAGE_START', messageId: 'ai:existing' })
+
+    const debug =
+      useDrawingRetrievalStore.getState().debugByMessageId['ai:existing']
+    expect(debug.requested_mode).toBe('existing')
+    expect(debug.evidence).toEqual([])
   })
 })
