@@ -16,6 +16,7 @@ import type { Artifact } from '@/lib/types/artifacts'
 import { CollapsibleColumn, createCollapseButton } from '@/components/projects/CollapsibleColumn'
 import { useProjectColumnsStore } from '@/lib/stores/project-columns-store'
 import { useProjectActivityStore } from '@/lib/stores/project-activity-store'
+import { ChatDrawingRetrievalControls } from '@/components/multivector/ChatDrawingRetrievalControls'
 
 interface ChatColumnProps {
   projectId: string
@@ -65,7 +66,14 @@ export function ChatColumn({
     onAssistantResponseComplete: handleAssistantResponseComplete,
   })
 
-  // Apply artifact-linked skills / tools / template when the user clicks an artifact.
+  const includedSourceIds = useMemo(
+    () =>
+      sources
+        .filter((source) => contextSelections.sources[source.id] === 'full')
+        .map((source) => source.id),
+    [contextSelections.sources, sources]
+  )
+
   const appliedDefaultsKeyRef = useRef(0)
   useLayoutEffect(() => {
     if (
@@ -110,18 +118,27 @@ export function ChatColumn({
     )
   } else {
     content = (
-      <ChatPanel
-        {...bindProjectChatPanelProps(chat, {
-          title: chatTitle,
-          titleAdornment,
-          loadingSessions: chat.loadingSessions || notesLoading,
-          projectId,
-          activeArtifact,
-          noteSaveTitle: activeArtifact?.title,
-          artifactPrefillKey: artifactRunKey,
-          headerActions: collapseButton,
-        })}
-      />
+      <div className="flex h-full min-h-0 flex-col gap-1.5">
+        <ChatDrawingRetrievalControls
+          projectId={projectId}
+          includedSourceIds={includedSourceIds}
+          disabled={chat.isSending}
+        />
+        <div className="min-h-0 flex-1">
+          <ChatPanel
+            {...bindProjectChatPanelProps(chat, {
+              title: chatTitle,
+              titleAdornment,
+              loadingSessions: chat.loadingSessions || notesLoading,
+              projectId,
+              activeArtifact,
+              noteSaveTitle: activeArtifact?.title,
+              artifactPrefillKey: artifactRunKey,
+              headerActions: collapseButton,
+            })}
+          />
+        </div>
+      </div>
     )
   }
 
