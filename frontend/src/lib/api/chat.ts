@@ -10,6 +10,7 @@ import {
   ChatSuggestionsRequest,
   ChatSuggestionsResponse,
 } from '@/lib/types/api'
+import { getActiveDrawingRetrievalRequest } from '@/lib/stores/drawing-retrieval-store'
 
 const GUEST_KEY_HEADER = 'X-Guest-Key'
 
@@ -18,8 +19,32 @@ function guestHeaders(guestKey?: string | null): Record<string, string> {
   return { [GUEST_KEY_HEADER]: guestKey }
 }
 
+export function buildProjectChatTransport(data: SendProjectChatMessageRequest): {
+  url: string
+  body: Record<string, unknown>
+} {
+  const drawing = getActiveDrawingRetrievalRequest()
+  const visualEnabled =
+    drawing.projectId &&
+    drawing.mode !== 'existing' &&
+    drawing.selectedSourceIds.length > 0
+
+  if (!visualEnabled) {
+    return { url: '/api/chat/execute', body: data as unknown as Record<string, unknown> }
+  }
+
+  return {
+    url: '/api/drawing-extractions/multivector/chat/execute',
+    body: {
+      ...data,
+      drawing_retrieval_mode: drawing.mode,
+      drawing_source_ids: drawing.selectedSourceIds,
+      drawing_result_limit: drawing.resultLimit,
+    },
+  }
+}
+
 export const chatApi = {
-  // Session management
   listSessions: async (projectId: string, guestKey?: string | null) => {
     const response = await apiClient.get<ProjectChatSession[]>(
       `/chat/sessions`,
@@ -73,12 +98,13 @@ export const chatApi = {
     })
   },
 
-  // Messaging with AG-UI SSE streaming
+  // Messaging with AG-UI SSE streaming. Existing mode preserves the original
+  // endpoint and request body byte-for-byte; visual modes use the isolated MVP route.
   sendMessage: (data: SendProjectChatMessageRequest, guestKey?: string | null) => {
     const token = getAuthToken()
-    const url = '/api/chat/execute'
+    const transport = buildProjectChatTransport(data)
 
-    return fetch(url, {
+    return fetch(transport.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -86,7 +112,7 @@ export const chatApi = {
         ...(token && { Authorization: `Bearer ${token}` }),
         ...guestHeaders(guestKey),
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(transport.body),
     }).then(async (response) => {
       if (!response.ok) {
         let errorMessage = `HTTP error! status: ${response.status}`
